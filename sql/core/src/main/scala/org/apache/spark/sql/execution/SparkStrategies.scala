@@ -272,6 +272,33 @@ private[sql] abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
     }
   }
 
+  object BroadcastRangeJoin extends Strategy {
+    private[this] def makeRangeJoin(leftRangeKeys: Seq[Expression],
+        rightRangeKeys: Seq[Expression],
+        equality: Seq[Boolean],
+        buildSide: joins.BuildSide,
+        left: LogicalPlan,
+        right: LogicalPlan) = {
+      new joins.BroadcastRangeJoin(
+        leftRangeKeys,
+        rightRangeKeys,
+        equality,
+        buildSide,
+        planLater(left),
+        planLater(right))
+    }
+
+    def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+      case ExtractRangeJoinKeys(CanBroadcast(left), right,
+          leftKeys, rightKeys, equality) =>
+        makeRangeJoin(leftKeys, rightKeys, equality, joins.BuildLeft, left, right) :: Nil
+      case ExtractRangeJoinKeys(left, CanBroadcast(right),
+          leftKeys, rightKeys, equality) =>
+        makeRangeJoin(leftKeys, rightKeys, equality, joins.BuildRight, left, right) :: Nil
+      case _ => Nil
+    }
+  }
+
   protected lazy val singleRowRdd = sparkContext.parallelize(Seq(InternalRow()), 1)
 
   object TakeOrderedAndProject extends Strategy {
