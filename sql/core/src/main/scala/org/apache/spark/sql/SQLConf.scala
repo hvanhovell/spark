@@ -358,6 +358,10 @@ private[spark] object SQLConf {
     defaultValue = Some(5 * 60),
     doc = "Timeout in seconds for the broadcast wait time in broadcast joins.")
 
+  val RANGE_JOIN = booleanConf("spark.sql.planner.rangeJoin",
+    defaultValue = Some(false),
+    doc = "<TODO>")
+
   // This is only used for the thriftserver
   val THRIFTSERVER_POOL = stringConf("spark.sql.thriftserver.scheduler.pool",
     doc = "Set a Fair Scheduler pool for a JDBC client session")
@@ -521,6 +525,12 @@ private[sql] class SQLConf extends Serializable with CatalystConf {
 
   private[spark] def nativeView: Boolean = getConf(NATIVE_VIEW)
 
+  /** When true the planner will use range join operator (instead of BNL) for range queries. */
+  private[spark] def rangeJoinEnabled: Boolean = getConf(RANGE_JOIN)
+
+  /**
+   * caseSensitive analysis true by default
+   */
   def caseSensitiveAnalysis: Boolean = getConf(SQLConf.CASE_SENSITIVE)
 
   private[spark] def subexpressionEliminationEnabled: Boolean =
