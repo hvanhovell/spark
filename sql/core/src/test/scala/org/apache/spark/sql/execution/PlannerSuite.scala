@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, Literal,
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical._
-import org.apache.spark.sql.execution.joins.{SortMergeJoin, BroadcastHashJoin}
+import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types._
@@ -418,6 +418,20 @@ class PlannerSuite extends SharedSQLContext {
   }
 
   // ---------------------------------------------------------------------------------------------
+  test("range query join condition and broadcastable table will use RangeJoin optimization") {
+    val origRangeJoinSetting = sqlContext.conf.rangeJoinEnabled
+    sqlContext.conf.setConf(SQLConf.RANGE_JOIN, true)
+
+    val interval = Seq((1, 20), (30, 70)).toDF("low", "high")
+    val planned = testData.
+      join(broadcast(interval), $"low" <= $"key" && $"key" < $"high", "inner").
+      queryExecution.
+      executedPlan
+    val broadcastRangeJoins = planned.collect{ case j: BroadcastRangeJoin => j }
+    assert(broadcastRangeJoins.size == 1, "Should use broadcast range join")
+
+    sqlContext.conf.setConf(SQLConf.RANGE_JOIN, origRangeJoinSetting)
+  }
 }
 
 // Used for unit-testing EnsureRequirements
