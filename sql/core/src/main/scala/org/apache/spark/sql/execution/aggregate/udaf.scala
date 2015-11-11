@@ -451,9 +451,19 @@ private[sql] case class ScalaUDAF(
     outputToCatalystConverter(udaf.evaluate(evalAggregateBuffer))
   }
 
-  override def toString: String = {
-    s"""${udaf.name}(${children.mkString(",")})"""
-  }
+  override def toString: String =
+    s"""$udafName(${children.mkString(",")})"""
 
-  override def nodeName: String = udaf.getClass.getSimpleName
+  override def nodeName: String = udafName
+
+  private[this] def udafName: String = {
+    try {
+      udaf.name
+    } catch {
+      case e: InternalError if e.getMessage.contains("Malformed class name") =>
+        log.error("Failed to get UDAF name. This is a know problem with REPL defined UDAFs. " +
+          "Please override the name method for a REPL defined UDAF.", e)
+        throw e
+    }
+  }
 }

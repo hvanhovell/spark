@@ -339,8 +339,8 @@ class ReplSuite extends SparkFunSuite {
   }
 
   test("SPARK-11594 create UDAF in REPL") {
-    val output = runInterpreter("local",
-      """
+    def script(nameOverride: String): String = {
+      s"""
         |import org.apache.spark.sql.Row
         |import org.apache.spark.sql.types.{DataType, LongType, StructType}
         |import org.apache.spark.sql.expressions.MutableAggregationBuffer
@@ -375,11 +375,19 @@ class ReplSuite extends SparkFunSuite {
         |  def evaluate(buffer: Row): Any =
         |    buffer.getLong(0)
         |
-        |  override def name = "product_sum"
+        |  $nameOverride
         |}
         |val productSum = sqlContext.udf.register("longProductSum", new LongProductSum)
-        |val data = sqlContext.range(1, 5).select(productSum($"id", $"id" + 1)).collect()
-      """.stripMargin)
-    assertContains("data: Array[org.apache.spark.sql.Row] = Array([40])", output)
+        |val data = sqlContext.range(1, 5).select(productSum(col("id"), col("id") + 1)).collect()
+        """.stripMargin
+    }
+
+    // Test without name
+    val output1 = runInterpreter("local", script(""))
+    assertContains("java.lang.InternalError: Malformed class name", output1)
+
+    // Test with name
+    val output2 = runInterpreter("local", script("""override def name = "product_sum""""))
+    assertContains("data: Array[org.apache.spark.sql.Row] = Array([40])", output2)
   }
 }
