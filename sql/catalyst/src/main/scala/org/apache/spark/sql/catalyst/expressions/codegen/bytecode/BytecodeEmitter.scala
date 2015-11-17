@@ -20,7 +20,11 @@ package org.apache.spark.sql.catalyst.expressions.codegen.bytecode
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter, GeneratedClass}
 import org.apache.spark.sql.catalyst.expressions._
-import org.objectweb.asm.{MethodVisitor, Opcodes}
+import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
+import org.objectweb.asm.{Label, MethodVisitor, Opcodes}
+
+import scala.collection.mutable
 
 /**
   * A very very experimental backend for direct expression compilation.
@@ -30,6 +34,8 @@ import org.objectweb.asm.{MethodVisitor, Opcodes}
   * - Common sub-expression elimination
   * - Cache aware access.
   * - Aggressive compilation of opaque expressions.
+  * - Play with Row optimizations. If we can 'create' a mono-morphic situation, which is quite
+  *   easy then we can make the JIT do more work for us.
   *
   * Things I need to do:
   * - Implement compilation for most expressions.
@@ -48,35 +54,22 @@ object BytecodeEmitter {
 
   val classLoader = getClass.getClassLoader
 
-  /** Compile epxressions down to bytecode. */
-  def compile(expressions: Seq[Expression]): GeneratedClass = {
-    val projection = createProjection(expressions)
-    val loader = new GeneratedClassLoader(classLoader, Seq(generator, projection))
-    loader.defineClass.newInstance().asInstanceOf[GeneratedClass]
+  /** Compile expressions down to bytecode. */
+  def generate(expressions: Seq[Expression]): Projection = {
+    val (bytecode, references) = compile(expressions)
+    new GeneratedClassLoader(classLoader, "SpecificProjection", bytecode)
+      .defineClass
+      .getConstructors()(0)
+      .newInstance(references)
+      .asInstanceOf[Projection]
   }
 
-  /** Byte code for the generator class. */
-  private[this] val generator = create("SpecificGeneratedClass", generatedClassType) { cv =>
-    // Constructor
-    val ctr = cv.visitConstructor()
-    ctr.visitVarInsn(Opcodes.ALOAD, 0)
-    ctr.visitConstructorCall(generatedClassType)
-    ctr.visitInsn(Opcodes.RETURN)
-    ctr.visitMaxsEnd()
-
-    // Generate method
-    val gen = cv.visitMethod("generate", s"([L$expressionType;)L$objectType;")
-    gen.visitTypeInsn(Opcodes.NEW, "SpecificProjection")
-    gen.visitInsn(Opcodes.DUP)
-    gen.visitVarInsn(Opcodes.ALOAD, 1)
-    gen.visitConstructorCall("SpecificProjection", s"([L$expressionType;)V")
-    gen.visitInsn(Opcodes.ARETURN)
-    gen.visitMaxsEnd()
-  }
-
-  /** Create a projection body. */
-  private[this] def createProjection(expressions: Seq[Expression]): (String, Array[Byte]) =
-    create("SpecificProjection", projectionType) { cv =>
+  /** Compile the projection. */
+  def compile(expressions: Seq[Expression]): (Array[Byte], Array[Expression]) = {
+    // Non-Determinism
+    // This would be the place to start optimizing the expression tree.
+    val references = mutable.Buffer.empty[Expression]
+    val bytecode = create("SpecificProjection", projectionType) { cv =>
       val numFields = expressions.size
 
       // 'expressions' field.
@@ -143,7 +136,19 @@ object BytecodeEmitter {
         s"(L$bufferHolderType;I)V")
 
       // Apply the actual expressions.
-      expressions.foreach(compileExpression(apply, _))
+      expressions.zipWithIndex.foreach {
+        case (expression, i) =>
+          apply.visitVarInsn(Opcodes.ALOAD, 0)
+          apply.visitFieldInsn(Opcodes.GETFIELD,
+            "SpecificProjection",
+            "writer",
+            s"L$unsafeRowWriterType;")
+          apply.visitLdcInsn(i)
+          compileExpression(apply, expression, references)
+
+
+
+      }
 
       // Finalize the buffer
       apply.visitVarInsn(Opcodes.ALOAD, 0)
@@ -168,34 +173,190 @@ object BytecodeEmitter {
       apply.visitInsn(Opcodes.ARETURN)
       apply.visitMaxsEnd()
     }
+    (bytecode, references.toArray)
+  }
 
-  private[this] def compileExpression(v: MethodVisitor, e: Expression): Unit =
-    v.visitInsn(Opcodes.NOP)
+
+  private[this] def compileExpression(
+      v: MethodVisitor,
+      e: Expression,
+      references: mutable.Buffer[Expression]): Unit = e match {
+    case Literal(null, dataType) =>
+      v.visitDefaultValue(dataType)
+      v.visitLdcInsn(true)
+    case Literal(value, _: NumericType | BooleanType | DateType | TimestampType) =>
+      v.visitLdcInsn(value)
+    case m: LeafMathExpression =>
+      v.visitLdcInsn(m.eval(null))
+    case BoundReference(ordinal, dataType, nullable) =>
+      v.visitVarInsn(Opcodes.ALOAD, 1)
+      if (nullable) {
+        v.visitInsn(Opcodes.DUP)
+        v.visitLdcInsn(ordinal)
+        v.visitMethodInsn(Opcodes.INVOKEVIRTUAL, internalRowType, "isNullAt", "(I)Z")
+        val nullBranch = new Label
+        val endIf = new Label
+        v.visitJumpInsn(Opcodes.IFNE, nullBranch)
+        v.visitRowGetter(ordinal, dataType)
+        v.visitLdcInsn(false)
+        v.visitJumpInsn(Opcodes.GOTO, endIf)
+        v.visitLabel(nullBranch)
+        v.visitInsn(Opcodes.POP)
+        v.visitDefaultValue(dataType)
+        v.visitLdcInsn(true)
+        v.visitLabel(endIf)
+      } else {
+        v.visitRowGetter(ordinal, dataType)
+      }
+    case other =>
+      val referenceId = references.size
+      references += other
+      v.visitVarInsn(Opcodes.ALOAD, 0)
+      v.visitFieldInsn(Opcodes.GETFIELD,
+        "SpecificProjection",
+        "expressions",
+        s"[L$expressionType;")
+      v.visitLdcInsn(referenceId)
+      v.visitInsn(Opcodes.AALOAD)
+      v.visitVarInsn(Opcodes.ALOAD, 1)
+      v.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+        expressionType,
+        "eval",
+        s"([L$internalRowType;)L$objectType;")
+      v.visitInsn(Opcodes.DUP)
+      if (other.nullable) {
+        val nullBranch = new Label
+        val endIf = new Label
+        v.visitJumpInsn(Opcodes.IFNULL, nullBranch)
+        v.visitUnboxValue(other.dataType)
+        v.visitLdcInsn(false)
+        v.visitJumpInsn(Opcodes.GOTO, endIf)
+        v.visitLabel(nullBranch)
+        v.visitInsn(Opcodes.POP)
+        v.visitDefaultValue(other.dataType)
+        v.visitLdcInsn(true)
+        v.visitLabel(endIf)
+      } else {
+        v.visitUnboxValue(other.dataType)
+      }
+  }
 }
 
 /**
-  * [[ClassLoader]] for loading a [[GeneratedClass]] and all the other classes it requires.
+  * [[ClassLoader]] for loading a compiled [[Projection]].
   *
-  * @param classes contains the class definitions.
   * @param parent of the current class loader.
+  * @param name of the projection class.
+  * @param bytecode of the projection class.
   */
 private[bytecode] class GeneratedClassLoader(
     parent: ClassLoader,
-    private[this] val classes: Seq[(String, Array[Byte])]) extends ClassLoader(parent) {
-  def defineClass: Class[_] = defineClass(classes.head)
+    name: String,
+    bytecode: Array[Byte]) extends ClassLoader(parent) {
 
-  private[this] def defineClass(definition: (String, Array[Byte])): Class[_] = {
-    val (name, bytes) = definition
-    defineClass(name, bytes, 0, bytes.length, getClass.getProtectionDomain)
-  }
+  def defineClass: Class[_] =
+    defineClass(name, bytecode, 0, bytecode.length, getClass.getProtectionDomain)
 
   @throws(classOf[ClassNotFoundException])
-  protected override def findClass (name: String): Class[_] = {
-    classes.find(_._1 == name) match {
-      case Some(definition) =>
-        defineClass(definition)
-      case None =>
-        throw new ClassNotFoundException(name)
+  protected override def findClass (n: String): Class[_] = {
+    if (n == name) {
+      defineClass
+    } else {
+      throw new ClassNotFoundException(name)
     }
+  }
+}
+
+/** Stolen from [[EquivalentExpressions]]. */
+case class Expr(e: Expression) {
+  override def equals(o: Any): Boolean = o match {
+    case other: Expr => e.semanticEquals(other.e)
+    case _ => false
+  }
+  override val hashCode: Int = e.semanticHash()
+}
+
+object IR {
+  /**
+    * An expression is defined as a Directed Acyclic Graph (DAG) of expressions. A projection is a
+    * combination of expressions and is therefore also a DAG.
+    *
+    *
+    * @param expressions
+    * @return
+    */
+  def apply(expressions: Seq[Expression]): AnyRef = {
+    def isConditional(e: Expression): Boolean = e match {
+      case _: If | _: CaseWhenLike | _: Coalesce | _: AtLeastNNonNulls => true
+      case _ => false
+    }
+    /** Do not deduplicate literals; we can store these in the constant pool. */
+    // TODO can we put byte arrays in the constant pool?
+    def isPrimitiveLiteral(e: Expression): Boolean = e match {
+      case Literal(null, _) => true
+      case Literal(_, _: NumericType | BooleanType | DateType | TimestampType) => true
+      case _ => true
+    }
+    // Find duplicate branches.
+
+    //
+
+    // Create subtrees.
+    // -
+    // -
+    // -
+    //
+    // Find black box expressions.
+    // Find non-deterministic expressions.
+    // Find
+    // Add determinism.
+    val references = mutable.Buffer.empty[Expression]
+    val exprMap = mutable.Map[Expr, Int]
+
+    // Walk the expression tree for a sequence of expressions.
+    def walk(exprs: Seq[Expression], conditional: Boolean): Unit =
+      exprs.foreach(walkExpressionTree(_, conditional))
+
+    // Walk the expression tree for a single expression.
+    def walkExpressionTree(e: Expression, conditional: Boolean = false): Unit = {
+      // Do a depth first traversal of the expression.
+      e match {
+        case If(predicate, trueValue, falseValue) =>
+          walkExpressionTree(predicate, conditional)
+          walkExpressionTree(trueValue, true)
+          walkExpressionTree(falseValue, true)
+        case cwl: CaseWhenLike =>
+          val branches = cwl.branches
+          walkExpressionTree(branches.head, conditional)
+          walk(branches.tail, true)
+        case Coalesce(children) =>
+          walkExpressionTree(children.head, conditional)
+          walk(children.tail, true)
+        case AtLeastNNonNulls(n, children) =>
+          val (exprs, conditionalExprs) = children.splitAt(n)
+          walk(exprs, conditional)
+          walk(conditionalExprs, true)
+        case _ =>
+          walk(e.children, conditional)
+      }
+
+      // Add the
+
+
+
+
+    }
+    walk(expressions, false)
+
+
+
+
+
+
+
+
+
+
+    null
   }
 }

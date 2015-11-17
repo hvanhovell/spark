@@ -16,9 +16,15 @@
  */
 
 package org.apache.spark.sql.catalyst.expressions.codegen
-import org.objectweb.asm._
 
-import scala.reflect.ClassTag
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.util.{MapData, ArrayData}
+import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
+import org.apache.xbean.asm5._
+import org.apache.xbean.asm5.commons.{Method, GeneratorAdapter}
+
+
 
 package object bytecode {
   /** Always create public final classes. */
@@ -27,15 +33,13 @@ package object bytecode {
   /** Always create private final fields. */
   val FIELD_ACCESS_FLAGS = Opcodes.ACC_PRIVATE + Opcodes.ACC_FINAL
 
-  /** Get the internal name of a class. */
-  def name[E](implicit e: ClassTag[E]): String = Type.getInternalName(e.runtimeClass)
 
   /** Create a class. */
-  def create(name: String, superClass: String)(f: ClassVisitor => Unit): (String, Array[Byte]) = {
+  def create(name: String, superClass: String)(f: ClassVisitor => Unit): Array[Byte] = {
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V1_6, CLASS_ACCESS_FLAGS, name, null, superClass, Array.empty)
     f(cw)
-    (name, cw.toByteArray)
+    cw.toByteArray
   }
 
   /** Helper methods for the class visitor. */
@@ -54,7 +58,7 @@ package object bytecode {
   }
 
   /** Helper methods for the method visitor. */
-  implicit class MethodVistorExt(val mv: MethodVisitor) extends AnyVal {
+  implicit class MethodVistorExt(val mv: GeneratorAdapter) extends AnyVal {
     def visitConstructorCall(owner: String, desc: String = "()V"): Unit =
       mv.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", desc)
 
@@ -69,5 +73,8 @@ package object bytecode {
       mv.visitConstructorCall(tpe)
       mv.visitFieldInsn(Opcodes.PUTFIELD, owner, name, s"L$tpe;")
     }
+
+
   }
 }
+
