@@ -17,34 +17,37 @@
 package org.apache.spark.sql.execution.joins
 
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.execution.{SparkPlan, SparkPlanTest}
+import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.types.IntegerType
 
-class RangeJoinSuite extends SparkPlanTest {
-  val intervals1 = Seq(
+class RangeJoinSuite extends SparkPlanTest with SharedSQLContext {
+  import testImplicits.localSeqToDataFrameHolder
+
+  val intervalKeys = Seq.tabulate(2)(BoundReference(_, IntegerType, nullable = false))
+  private lazy val intervals1 = Seq(
     (-1, 0),
     (0, 1),
     (0, 2),
     (1, 5)
   ).toDF("low1", "high1")
-  val intervalKeys1 = Seq("low1", "high1").map(UnresolvedAttribute.apply)
 
-  val intervals2 = Seq(
+  private lazy val intervals2 = Seq(
     (-2, -1),
     (-4, -2),
     (1, 3),
     (5, 7)
   ).toDF("low2", "high2")
-  val intervalKeys2 = Seq("low2", "high2").map(UnresolvedAttribute.apply)
 
-  val points = Seq(-3, 1, 3, 6).map(Tuple1.apply).toDF("point")
-  val pointKeys = Seq("point", "point").map(UnresolvedAttribute.apply)
+  val pointKeys = Seq.fill(2)(BoundReference(0, IntegerType, nullable = false))
+  private lazy val points = Seq(-3, 1, 3, 6).map(Tuple1.apply).toDF("point")
 
   test("interval-point range join") {
     // low1 <= point && point < high1
     checkAnswer2(intervals1, points, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
+        intervalKeys,
         pointKeys,
         true :: false :: Nil,
         BuildRight,
@@ -59,7 +62,7 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 <= point && point < high1
     checkAnswer2(intervals1, points, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
+        intervalKeys,
         pointKeys,
         false :: false :: Nil,
         BuildRight,
@@ -74,7 +77,7 @@ class RangeJoinSuite extends SparkPlanTest {
     checkAnswer2(points, intervals1, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
         pointKeys,
-        intervalKeys1,
+        intervalKeys,
         true :: true :: Nil,
         BuildRight,
         left,
@@ -89,7 +92,7 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 < point && point < high1
     checkAnswer2(intervals1, points, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
+        intervalKeys,
         pointKeys,
         false :: false :: Nil,
         BuildLeft,
@@ -105,8 +108,8 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 <= high2 && low2 < high1
     checkAnswer2(intervals1, intervals2, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
-        intervalKeys2,
+        intervalKeys,
+        intervalKeys,
         true :: false :: Nil,
         BuildRight,
         left,
@@ -120,8 +123,8 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 < high2 && low2 <= high1
     checkAnswer2(intervals1, intervals2, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
-        intervalKeys2,
+        intervalKeys,
+        intervalKeys,
         false :: true :: Nil,
         BuildLeft,
         left,
@@ -136,8 +139,8 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 < high2 && low2 < high1
     checkAnswer2(intervals1, intervals2, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
-        intervalKeys2,
+        intervalKeys,
+        intervalKeys,
         false :: false :: Nil,
         BuildRight,
         left,
@@ -150,8 +153,8 @@ class RangeJoinSuite extends SparkPlanTest {
     // low1 <= high2 && low2 <= high1
     checkAnswer2(intervals1, intervals2, (left: SparkPlan, right: SparkPlan) =>
       BroadcastRangeJoin(
-        intervalKeys1,
-        intervalKeys2,
+        intervalKeys,
+        intervalKeys,
         true :: true :: Nil,
         BuildLeft,
         left,

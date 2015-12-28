@@ -427,7 +427,7 @@ class PlannerSuite extends SharedSQLContext {
       join(broadcast(interval), $"low" <= $"key" && $"key" < $"high", "inner").
       queryExecution.
       executedPlan
-    val broadcastRangeJoins = planned.collect{ case j: BroadcastRangeJoin => j }
+    val broadcastRangeJoins = planned.collect { case j: BroadcastRangeJoin => j }
     assert(broadcastRangeJoins.size == 1, "Should use broadcast range join")
 
     sqlContext.conf.setConf(SQLConf.RANGE_JOIN, origRangeJoinSetting)

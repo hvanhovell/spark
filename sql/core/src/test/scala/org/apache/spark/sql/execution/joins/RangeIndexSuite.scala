@@ -24,13 +24,15 @@ import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.IntegerType
 
 class RangeIndexSuite extends SparkFunSuite {
-  private[this] val ordering = TypeUtils.getOrdering(IntegerType)
+  private[this] val ordering = IntegerType.ordering.asInstanceOf[Ordering[Any]]
+
+  private[this] val extractor = BroadcastRangeJoin.createKeyExtractor(IntegerType)
 
   private[this] val projection = new InterpretedMutableProjection(Seq(
     BoundReference(0, IntegerType, nullable = false),
     BoundReference(1, IntegerType, nullable = false)))
 
-  private[this] val eventifier = RangeIndex.toRangeEvent(projection, ordering)
+  private[this] val eventifier = RangeIndex.toRangeEvent(projection, extractor, ordering)
 
   test("RangeIndex Point Query") {
     val r1 = InternalRow(1, 1)

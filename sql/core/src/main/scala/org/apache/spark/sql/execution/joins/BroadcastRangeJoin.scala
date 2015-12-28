@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.joins
 
-import org.apache.spark.sql.catalyst.util.TypeUtils
+import org.apache.spark.sql.types._
 import org.apache.spark.util.ThreadUtils
 
 import scala.annotation.tailrec
@@ -27,7 +27,6 @@ import scala.concurrent.duration._
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.{BinaryNode, SparkPlan}
@@ -63,6 +62,10 @@ case class BroadcastRangeJoin(
     right: SparkPlan)
   extends BinaryNode {
 
+  override def outputsUnsafeRows: Boolean = true
+  override def canProcessUnsafeRows: Boolean = true
+  override def canProcessSafeRows: Boolean = true
+
   private[this] lazy val (buildPlan, streamedPlan) = buildSide match {
     case BuildLeft => (left, right)
     case BuildRight => (right, left)
@@ -75,14 +78,6 @@ case class BroadcastRangeJoin(
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-  @transient
-  private[this] lazy val buildSideKeyGenerator: Projection =
-    newProjection(buildKeys, buildPlan.output)
-
-  @transient
-  private[this] lazy val streamSideKeyGenerator: () => MutableProjection =
-    newMutableProjection(streamedKeys, streamedPlan.output)
-
   private[this] val timeout: Duration = {
     val timeoutValue = sqlContext.conf.broadcastTimeout
     if (timeoutValue < 0) {
@@ -90,6 +85,11 @@ case class BroadcastRangeJoin(
     } else {
       timeoutValue.seconds
     }
+  }
+
+  private[this] val (keyDataType, keyExtractor, keyOrdering) = {
+    val dt = buildKeys.head.dataType.asInstanceOf[AtomicType]
+    (dt, BroadcastRangeJoin.createKeyExtractor(dt), dt.ordering.asInstanceOf[Ordering[Any]])
   }
 
   // Construct the range index.
@@ -101,16 +101,13 @@ case class BroadcastRangeJoin(
       case BuildRight => equality
     }
 
-    // Get the ordering for the datatype.
-    val ordering = TypeUtils.getOrdering(buildKeys.head.dataType)
-
     // Note that we use .execute().collect() because we don't want to convert data to Scala types
-    // TODO find out if the result of a sort and a collect is still sorted.
-    val eventifier = RangeIndex.toRangeEvent(buildSideKeyGenerator, ordering)
+    val buildSideKeyGenerator = UnsafeProjection.create(buildKeys, buildPlan.output)
+    val eventifier = RangeIndex.toRangeEvent(buildSideKeyGenerator, keyExtractor, keyOrdering)
     val events = buildPlan.execute().map(_.copy()).collect().flatMap(eventifier)
 
     // Create the index.
-    val index = RangeIndex.build(ordering, events, allowLowEqual, allowHighEqual)
+    val index = RangeIndex.build(keyOrdering, events, allowLowEqual, allowHighEqual)
 
     // Broadcast the index.
     sparkContext.broadcast(index)
@@ -124,18 +121,20 @@ case class BroadcastRangeJoin(
     streamedPlan.execute().mapPartitions { stream =>
       new Iterator[InternalRow] {
         private[this] val index = indexBC.value
-        private[this] val streamSideKeys = streamSideKeyGenerator()
-        private[this] val join = new JoinedRow2 // TODO create our own join row...
+        private[this] val streamSideKeys =
+          UnsafeProjection.create(streamedKeys, streamedPlan.output)
+        private[this] val join = new JoinedRow
         private[this] var row: InternalRow = EmptyRow
         private[this] var iterator: Iterator[InternalRow] = Iterator.empty
+        private[this] val resultProjection: Projection = UnsafeProjection.create(schema)
 
         override final def hasNext: Boolean = {
           var result = iterator.hasNext
           while (!result && stream.hasNext) {
             row = stream.next()
             val lowHigh = streamSideKeys(row)
-            val low = lowHigh(0)
-            val high = lowHigh(1)
+            val low = keyExtractor(lowHigh, 0)
+            val high = keyExtractor(lowHigh, 1)
             if (low != null && high != null) {
               iterator = index.intersect(low, high)
             }
@@ -149,6 +148,7 @@ case class BroadcastRangeJoin(
             case BuildRight => join(row, iterator.next())
             case BuildLeft => join(iterator.next(), row)
           }
+          resultProjection(join)
         }
       }
     }
@@ -158,6 +158,40 @@ case class BroadcastRangeJoin(
 private[joins] object BroadcastRangeJoin {
   private val broadcastRangeJoinExecutionContext = ExecutionContext.fromExecutorService(
     ThreadUtils.newDaemonCachedThreadPool("broadcast-range-join", 128))
+
+  def createKeyExtractor(dt: AtomicType): (InternalRow, Int) => Any = dt match {
+    case BinaryType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getBinary(o)
+    }
+    case BooleanType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getBoolean(o)
+    }
+    case dec: DecimalType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getDecimal(o, dec.precision, dec.scale)
+    }
+    case DoubleType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getDouble(o)
+    }
+    case FloatType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getFloat(o)
+    }
+    case ByteType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getByte(o)
+    }
+    case ShortType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getShort(o)
+    }
+    case IntegerType | DateType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getInt(o)
+    }
+    case LongType | TimestampType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getLong(o)
+    }
+    case StringType => (r: InternalRow, o: Int) => {
+      if (r.isNullAt(o)) null else r.getString(o)
+    }
+    case other => sys.error(s"DataType '$other' not supported.")
+  }
 }
 
 private[joins] object RangeIndex {
@@ -235,12 +269,17 @@ private[joins] object RangeIndex {
   }
 
   /** Create a function that turns a row into its respective range events. */
-  def toRangeEvent(lowHighExtr: Projection, cmp: Ordering[Any]):
+  def toRangeEvent(
+    lowHighExtr: Projection,
+    extractor: (InternalRow, Int) => Any,
+    cmp: Ordering[Any]):
       (InternalRow => Seq[RangeEvent]) = {
     (row: InternalRow) => {
-      val Row(low, high) = lowHighExtr(row)
+      val lowHigh = lowHighExtr(row)
       // Valid points and intervals.
-      if (low != null && high != null) {
+      if (!lowHigh.anyNull) {
+        val low = extractor(lowHigh, 0)
+        val high = extractor(lowHigh, 1)
         val result = cmp.compare(low, high)
         // Point
         if (result == 0) {
