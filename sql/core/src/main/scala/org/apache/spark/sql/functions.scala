@@ -368,7 +368,7 @@ object functions extends LegacyFunctions {
     * consider null values when the ignoreNulls flag is set to true.
     *
     * @group agg_funcs
-    * @since 1.3.0
+    * @since 1.6.0
     */
   def last(e: Column, ignoreNulls: Boolean): Column = withAggregateFunction {
     new Last(e.expr, Literal(ignoreNulls))
@@ -379,7 +379,7 @@ object functions extends LegacyFunctions {
     * consider null values when the ignoreNulls flag is set to true.
     *
     * @group agg_funcs
-    * @since 1.3.0
+    * @since 1.6.0
     */
   def last(columnName: String, ignoreNulls: Boolean): Column = {
     last(Column(columnName), ignoreNulls)
