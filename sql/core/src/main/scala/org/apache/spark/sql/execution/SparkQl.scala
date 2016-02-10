@@ -17,15 +17,17 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{AnalysisException, SaveMode}
-import org.apache.spark.sql.catalyst.{CatalystQl, TableIdentifier}
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.catalyst.parser.{ASTNode, ParserConf, SimpleParserConf}
+import org.apache.spark.sql.catalyst.parser.{ASTNode, BaseSqlParser, ParserConf, SimpleParserConf}
+import org.apache.spark.sql.catalyst.parser.BaseSqlParser._
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, OneRowRelation}
-import org.apache.spark.sql.catalyst.plans.logical
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.types.StructType
 
-private[sql] class SparkQl(conf: ParserConf = SimpleParserConf()) extends CatalystQl(conf) {
+private[sql] class SparkQl(conf: ParserConf = SimpleParserConf()) extends BaseSqlParser(conf) {
+
+
   /** Check if a command should not be explained. */
   protected def isNoExplainCommand(command: String): Boolean = "TOK_DESCTABLE" == command
 
@@ -98,7 +100,7 @@ private[sql] class SparkQl(conf: ParserConf = SimpleParserConf()) extends Cataly
             }
         }.toMap
 
-        val asClause = tableAs.map(nodeToPlan(_))
+        val asClause = tableAs.map(nodeToPlan)
 
         if (temp.isDefined && allowExisting.isDefined) {
           throw new AnalysisException(

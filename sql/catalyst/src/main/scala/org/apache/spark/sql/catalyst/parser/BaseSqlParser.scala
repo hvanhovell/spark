@@ -14,15 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.catalyst
+package org.apache.spark.sql.catalyst.parser
 
 import java.sql.Date
 
 import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.catalyst.{ParserInterface, TableIdentifier}
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.Count
-import org.apache.spark.sql.catalyst.parser._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.trees.CurrentOrigin
@@ -33,7 +33,11 @@ import org.apache.spark.util.random.RandomSampler
 /**
  * This class translates SQL to Catalyst [[LogicalPlan]]s or [[Expression]]s.
  */
-private[sql] class CatalystQl(val conf: ParserConf = SimpleParserConf()) extends ParserInterface {
+private[sql] class BaseSqlParser(val conf: ParserConf = SimpleParserConf())
+    extends ParserInterface {
+  import BaseSqlParser._
+
+
   object Token {
     def unapply(node: ASTNode): Some[(String, List[ASTNode])] = {
       CurrentOrigin.setPosition(node.line, node.positionInLine)
@@ -182,7 +186,7 @@ private[sql] class CatalystQl(val conf: ParserConf = SimpleParserConf()) extends
    * SELECT MAX(value) FROM src GROUP BY k1, k2 UNION SELECT MAX(value) FROM src GROUP BY k2
    * Check the following link for details.
    *
-https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C+Grouping+and+Rollup
+*https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C+Grouping+and+Rollup
    *
    * The bitmask denotes the grouping expressions validity for a grouping set,
    * the bitmask also be called as grouping id (`GROUPING__ID`, the virtual column in Hive)
@@ -446,8 +450,6 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
       noParseRule("Plan", node)
   }
 
-  val allJoinTokens = "(TOK_.*JOIN)".r
-  val laterViewToken = "TOK_LATERAL_VIEW(.*)".r
   protected def nodeToRelation(node: ASTNode): LogicalPlan = {
     node match {
       case Token("TOK_SUBQUERY", query :: Token(alias, Nil) :: Nil) =>
@@ -544,21 +546,23 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
       noParseRule("SortOrder", node)
   }
 
-  val destinationToken = "TOK_DESTINATION|TOK_INSERT_INTO".r
   protected def nodeToDest(
       node: ASTNode,
       query: LogicalPlan,
       overwrite: Boolean): LogicalPlan = node match {
-    case Token(destinationToken(),
-    Token("TOK_DIR",
-    Token("TOK_TMP_FILE", Nil) :: Nil) :: Nil) =>
+    case Token("TOK_DESTINATION" | "TOK_INSERT_INTO",
+           Token("TOK_DIR", Token("TOK_TMP_FILE", Nil) :: Nil) :: Nil) =>
       query
 
-    case Token(destinationToken(),
-    Token("TOK_TAB",
-    tableArgs) :: Nil) =>
+    case Token("TOK_DESTINATION" | "TOK_INSERT_INTO", Token("TOK_TAB", tableArgs) :: rest) =>
       val Some(tableNameParts) :: partitionClause :: Nil =
         getClauses(Seq("TOK_TABNAME", "TOK_PARTSPEC"), tableArgs)
+
+      val ifNotExists = rest match {
+        case Nil => false
+        case Token("TOK_IFNOTEXISTS", _) :: Nil => true
+        case _ => noParseRule("Destination", node)
+      }
 
       val tableIdent = extractTableIdent(tableNameParts)
 
@@ -571,28 +575,7 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
       }.toMap).getOrElse(Map.empty)
 
       InsertIntoTable(
-        UnresolvedRelation(tableIdent, None), partitionKeys, query, overwrite, ifNotExists = false)
-
-    case Token(destinationToken(),
-    Token("TOK_TAB",
-    tableArgs) ::
-      Token("TOK_IFNOTEXISTS",
-      ifNotExists) :: Nil) =>
-      val Some(tableNameParts) :: partitionClause :: Nil =
-        getClauses(Seq("TOK_TABNAME", "TOK_PARTSPEC"), tableArgs)
-
-      val tableIdent = extractTableIdent(tableNameParts)
-
-      val partitionKeys = partitionClause.map(_.children.map {
-        // Parse partitions. We also make keys case insensitive.
-        case Token("TOK_PARTVAL", Token(key, Nil) :: Token(value, Nil) :: Nil) =>
-          cleanIdentifier(key.toLowerCase) -> Some(unquoteString(value))
-        case Token("TOK_PARTVAL", Token(key, Nil) :: Nil) =>
-          cleanIdentifier(key.toLowerCase) -> None
-      }.toMap).getOrElse(Map.empty)
-
-      InsertIntoTable(
-        UnresolvedRelation(tableIdent, None), partitionKeys, query, overwrite, ifNotExists = true)
+        UnresolvedRelation(tableIdent, None), partitionKeys, query, overwrite, ifNotExists)
 
     case _ =>
       noParseRule("Destination", node)
@@ -617,42 +600,6 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
     case _ =>
       noParseRule("Select", node)
   }
-
-  protected val escapedIdentifier = "`(.+)`".r
-  protected val doubleQuotedString = "\"([^\"]+)\"".r
-  protected val singleQuotedString = "'([^']+)'".r
-
-  protected def unquoteString(str: String) = str match {
-    case singleQuotedString(s) => s
-    case doubleQuotedString(s) => s
-    case other => other
-  }
-
-  /** Strips backticks from ident if present */
-  protected def cleanIdentifier(ident: String): String = ident match {
-    case escapedIdentifier(i) => i
-    case plainIdent => plainIdent
-  }
-
-  /* Case insensitive matches */
-  val COUNT = "(?i)COUNT".r
-  val SUM = "(?i)SUM".r
-  val AND = "(?i)AND".r
-  val OR = "(?i)OR".r
-  val NOT = "(?i)NOT".r
-  val TRUE = "(?i)TRUE".r
-  val FALSE = "(?i)FALSE".r
-  val LIKE = "(?i)LIKE".r
-  val RLIKE = "(?i)RLIKE".r
-  val REGEXP = "(?i)REGEXP".r
-  val IN = "(?i)IN".r
-  val DIV = "(?i)DIV".r
-  val BETWEEN = "(?i)BETWEEN".r
-  val WHEN = "(?i)WHEN".r
-  val CASE = "(?i)CASE".r
-
-  val INTEGRAL = "[+-]?\\d+".r
-  val DECIMAL = "[+-]?((\\d+(\\.\\d*)?)|(\\.\\d+))".r
 
   protected def nodeToExpr(node: ASTNode): Expression = node match {
     /* Attribute References */
@@ -879,10 +826,6 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
       noParseRule("Expression", node)
   }
 
-  /* Case insensitive matches for Window Specification */
-  val PRECEDING = "(?i)preceding".r
-  val FOLLOWING = "(?i)following".r
-  val CURRENT = "(?i)current".r
   protected def nodesToWindowSpecification(nodes: Seq[ASTNode]): WindowSpec = nodes match {
     case Token(windowName, Nil) :: Nil =>
       // Refer to a window spec defined in the window clause.
@@ -973,8 +916,6 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
       node: ASTNode,
       child: LogicalPlan): Option[ScriptTransformation] = None
 
-  val explode = "(?i)explode".r
-  val jsonTuple = "(?i)json_tuple".r
   protected def nodeToGenerate(node: ASTNode, outer: Boolean, child: LogicalPlan): Generate = {
     val Token("TOK_SELECT", Token("TOK_SELEXPR", clauses) :: Nil) = node
 
@@ -1000,4 +941,55 @@ https://cwiki.apache.org/confluence/display/Hive/Enhanced+Aggregation%2C+Cube%2C
 
   protected def noParseRule(msg: String, node: ASTNode): Nothing = throw new NotImplementedError(
     s"[$msg]: No parse rules for ASTNode type: ${node.tokenType}, tree:\n${node.treeString}")
+}
+
+object BaseSqlParser {
+  val escapedIdentifier = "`(.+)`".r
+  val doubleQuotedString = "\"([^\"]+)\"".r
+  val singleQuotedString = "'([^']+)'".r
+
+  def unquoteString(str: String): String = str match {
+    case singleQuotedString(s) => s
+    case doubleQuotedString(s) => s
+    case other => other
+  }
+
+  /** Strips backticks from ident if present */
+  def cleanIdentifier(ident: String): String = ident match {
+    case escapedIdentifier(i) => i
+    case plainIdent => plainIdent
+  }
+
+  val allJoinTokens = "(TOK_.*JOIN)".r
+  val laterViewToken = "TOK_LATERAL_VIEW(.*)".r
+
+  val destinationToken = "TOK_DESTINATION|TOK_INSERT_INTO".r
+
+  /* Case insensitive matches */
+  val COUNT = "(?i)COUNT".r
+  val SUM = "(?i)SUM".r
+  val AND = "(?i)AND".r
+  val OR = "(?i)OR".r
+  val NOT = "(?i)NOT".r
+  val TRUE = "(?i)TRUE".r
+  val FALSE = "(?i)FALSE".r
+  val LIKE = "(?i)LIKE".r
+  val RLIKE = "(?i)RLIKE".r
+  val REGEXP = "(?i)REGEXP".r
+  val IN = "(?i)IN".r
+  val DIV = "(?i)DIV".r
+  val BETWEEN = "(?i)BETWEEN".r
+  val WHEN = "(?i)WHEN".r
+  val CASE = "(?i)CASE".r
+
+  val INTEGRAL = "[+-]?\\d+".r
+  val DECIMAL = "[+-]?((\\d+(\\.\\d*)?)|(\\.\\d+))".r
+
+  /* Case insensitive matches for Window Specification */
+  val PRECEDING = "(?i)preceding".r
+  val FOLLOWING = "(?i)following".r
+  val CURRENT = "(?i)current".r
+
+  val explode = "(?i)explode".r
+  val jsonTuple = "(?i)json_tuple".r
 }
