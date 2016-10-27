@@ -68,6 +68,8 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: CatalystConf)
       CombineUnions) ::
     Batch("Subquery", Once,
       OptimizeSubqueries) ::
+    Batch("Barriers", Once,
+      OptimizeBarriers) ::
     Batch("Replace Operators", fixedPoint,
       ReplaceIntersectWithSemiJoin,
       ReplaceExceptWithAntiJoin,
@@ -133,6 +135,25 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: CatalystConf)
     def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
       case s: SubqueryExpression =>
         s.withNewPlan(Optimizer.this.execute(s.plan))
+    }
+  }
+
+  object OptimizeBarriers extends Rule[LogicalPlan] {
+    def apply(plan: LogicalPlan): LogicalPlan = {
+      // Count the barriers.
+      val barriers = plan.collect {
+        case b: Barrier => b
+      }
+      val counts = barriers.groupBy(identity).mapValues(_.length)
+
+      plan transform {
+        // TODO figure out when we want to use barriers.
+        // TODO add support for column pruning here.
+        case b @ Barrier(inner) if counts(b) == 1 =>
+          inner
+        case b @ Barrier(inner) =>
+          Barrier(Optimizer.this.execute(inner))
+      }
     }
   }
 }

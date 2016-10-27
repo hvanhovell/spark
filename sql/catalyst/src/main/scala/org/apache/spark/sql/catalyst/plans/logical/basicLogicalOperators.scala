@@ -754,3 +754,11 @@ case object OneRowRelation extends LeafNode {
    */
   override lazy val statistics: Statistics = Statistics(sizeInBytes = 1)
 }
+
+case class Barrier(inner: LogicalPlan) extends LeafNode {
+  override lazy val resolved: Boolean = inner.resolved
+  override def output: Seq[Attribute] = inner.output
+  override def maxRows: Option[Long] = inner.maxRows
+  override def statistics: Statistics = inner.statistics
+  override protected def innerChildren: Seq[QueryPlan[_]] = inner :: Nil
+}

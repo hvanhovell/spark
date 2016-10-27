@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.planning._
 import org.apache.spark.sql.catalyst.plans._
-import org.apache.spark.sql.catalyst.plans.logical.{BroadcastHint, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Barrier, BroadcastHint, LogicalPlan}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.execution.command._
@@ -438,6 +438,13 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
       case c: CreateTempViewUsing => ExecutedCommandExec(c) :: Nil
 
+      case _ => Nil
+    }
+  }
+
+  object BarrierStrategy extends Strategy {
+    def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+      case Barrier(inner) => planLater(inner) :: Nil
       case _ => Nil
     }
   }
