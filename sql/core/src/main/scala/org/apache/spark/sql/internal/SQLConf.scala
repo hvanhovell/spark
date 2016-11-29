@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.internal
 
-import java.util.{NoSuchElementException, Properties}
+import java.util.{NoSuchElementException, Properties, TimeZone}
 import java.util.concurrent.TimeUnit
 
 import scala.collection.JavaConverters._
@@ -30,6 +30,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.catalyst.CatalystConf
+import org.apache.spark.sql.catalyst.expressions.SessionTimeZoneID
 import org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol
 import org.apache.spark.sql.execution.streaming.ManifestFileCommitProtocol
 import org.apache.spark.util.Utils
@@ -622,6 +623,11 @@ object SQLConf {
       "encountering corrupt files and contents that have been read will still be returned.")
     .booleanConf
     .createWithDefault(false)
+
+  val TIME_ZONE = SQLConfigBuilder(SessionTimeZoneID.KEY)
+    .doc("The TimeZone used in the SparkSession")
+    .timeZoneConf
+    .createWithDefault(TimeZone.getDefault)
 
   object Deprecated {
     val MAPRED_REDUCE_TASKS = "mapred.reduce.tasks"

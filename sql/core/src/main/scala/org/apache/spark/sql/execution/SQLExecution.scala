@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd,
-  SparkListenerSQLExecutionStart}
+import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
+import org.apache.spark.sql.internal.SQLConf
 
 object SQLExecution {
 
@@ -44,6 +44,7 @@ object SQLExecution {
     if (oldExecutionId == null) {
       val executionId = SQLExecution.nextExecutionId
       sc.setLocalProperty(EXECUTION_ID_KEY, executionId.toString)
+      sc.setLocalProperty(SQLConf.TIME_ZONE.key, sparkSession.conf.get(SQLConf.TIME_ZONE).getID)
       val r = try {
         // sparkContext.getCallSite() would first try to pick up any call site that was previously
         // set, then fall back to Utils.getCallSite(); call Utils.getCallSite() directly on
@@ -61,6 +62,7 @@ object SQLExecution {
         }
       } finally {
         sc.setLocalProperty(EXECUTION_ID_KEY, null)
+        sc.setLocalProperty(SQLConf.TIME_ZONE.key, null)
       }
       r
     } else {

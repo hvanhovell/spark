@@ -17,6 +17,7 @@
 
 package org.apache.spark.internal.config
 
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
@@ -65,6 +66,14 @@ private object ConfigHelpers {
 
   def byteToString(v: Long, unit: ByteUnit): String = unit.convertTo(v, ByteUnit.BYTE) + "b"
 
+  private lazy val timeZoneIDs = TimeZone.getAvailableIDs.toSet
+
+  def toTimezone(id: String): TimeZone = {
+    if (!timeZoneIDs.contains(id)) {
+      throw new IllegalArgumentException(s"'$id' is not a valid TimeZone.")
+    }
+    TimeZone.getTimeZone(id)
+  }
 }
 
 /**
@@ -206,4 +215,7 @@ private[spark] case class ConfigBuilder(key: String) {
     new FallbackConfigEntry(key, _doc, _public, fallback)
   }
 
+  def timeZoneConf: TypedConfigBuilder[TimeZone] = {
+    new TypedConfigBuilder(this, toTimezone, _.getID)
+  }
 }
