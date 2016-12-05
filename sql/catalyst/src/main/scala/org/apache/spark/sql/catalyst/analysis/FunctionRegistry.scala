@@ -360,6 +360,10 @@ object FunctionRegistry {
     expression[Size]("size"),
     expression[SortArray]("sort_array"),
     CreateStruct.registryEntry,
+    expression[ArrayTransform]("transform"),
+    expression[ArrayExists]("exists"),
+    expression[ArrayFilter]("filter"),
+    expression[ArrayReduce]("reduce"),
 
     // misc functions
     expression[AssertTrue]("assert_true"),

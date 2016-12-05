@@ -661,6 +661,8 @@ class Analyzer(
       // rule: ResolveDeserializer.
       case plan if containsDeserializer(plan.expressions) => plan
 
+      case plan if containsLambda(plan.expressions) => plan
+
       case q: LogicalPlan =>
         logTrace(s"Attempting to resolve ${q.simpleString}")
         q transformExpressionsUp  {
@@ -743,6 +745,10 @@ class Analyzer(
 
   private def containsDeserializer(exprs: Seq[Expression]): Boolean = {
     exprs.exists(_.find(_.isInstanceOf[UnresolvedDeserializer]).isDefined)
+  }
+
+  private def containsLambda(exprs: Seq[Expression]): Boolean = {
+    exprs.exists(_.find(_.isInstanceOf[UnresolvedLambdaFunction]).isDefined)
   }
 
   protected[sql] def resolveExpression(
@@ -939,6 +945,18 @@ class Analyzer(
     def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperators {
       case q: LogicalPlan =>
         q transformExpressions {
+          case u @ UnresolvedFunction(fn, children, false) if resolvedOrLambda(children) =>
+            withPosition(u) {
+              catalog.lookupFunction(fn, children) match {
+                case func: HigherOrderFunction =>
+                  resolveHigherOrderFunction(func)
+                case other => failAnalysis(
+                  "A lambda function should only be used in a higher order function. However, " +
+                   s"its class is ${other.getClass.getCanonicalName}, which is not a " +
+                  "higher order function.")
+              }
+            }
+
           case u if !u.childrenResolved => u // Skip until children are resolved.
           case u @ UnresolvedGenerator(name, children) =>
             withPosition(u) {
@@ -968,6 +986,60 @@ class Analyzer(
               }
             }
         }
+    }
+
+    private def resolvedOrLambda(expressions: Seq[Expression]): Boolean = {
+      var i = 0
+      var hasLambda = false
+      val length = expressions.size
+      while (i < length) {
+        val e = expressions(i)
+        var isLambda = e.isInstanceOf[UnresolvedLambdaFunction]
+        if (!isLambda && !e.resolved) {
+          return false
+        }
+        hasLambda ||= isLambda
+        i += 1
+      }
+      hasLambda
+    }
+
+    private def resolveHigherOrderFunction(h: HigherOrderFunction): HigherOrderFunction = {
+      val bound = h.bindVariables()
+      bound.bindFunction(bound.function match {
+        case UnresolvedLambdaFunction(fn, arguments) =>
+          if (arguments.size != bound.variables.size) {
+            failAnalysis(
+              s"The number of lambda function arguments '${arguments.size}' does not match the " +
+               "number of arguments expected by the higher order function " +
+              s"'${bound.variables.size}'.")
+          }
+
+          // Make sure the lambda's arguments are not ambiguous.
+          var i = 0
+          val length = arguments.size
+          while (i < length) {
+            var j = i + 1
+            while (j < length) {
+              if (resolver(arguments(i), arguments(j))) {
+                failAnalysis(
+                  "Lambda function arguments should not have names that are semantically the " +
+                  s"same: '${arguments(i)}' @ $i and '${arguments(j)}' @ $j")
+              }
+              j += 1
+            }
+            i += 1
+          }
+
+          // Bind the variables to the expression tree. Note that a lambda argument has precedence
+          // over an attribute with the same name.
+          val argumentToVariableMap = arguments.zip(bound.variables)
+          fn.transform {
+            case u @ UnresolvedAttribute(name :: Nil) =>
+              argumentToVariableMap.find(kv => resolver(kv._1, name)).map(_._2).getOrElse(u)
+          }
+        case other => failAnalysis("")
+      })
     }
   }
 

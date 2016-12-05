@@ -420,3 +420,18 @@ case class UnresolvedOrdinal(ordinal: Int)
   override def nullable: Boolean = throw new UnresolvedException(this, "nullable")
   override lazy val resolved = false
 }
+
+/**
+ * An unresolved lambda function and its arguments.
+ */
+case class UnresolvedLambdaFunction(
+    function: Expression,
+    arguments: Seq[String])
+  extends Expression
+    with Unevaluable {
+  override lazy val resolved = false
+  override def children: Seq[Expression] = function :: Nil
+  override def dataType: DataType = throw new UnresolvedException(this, "dataType")
+  override def foldable: Boolean = throw new UnresolvedException(this, "foldable")
+  override def nullable: Boolean = throw new UnresolvedException(this, "nullable")
+}

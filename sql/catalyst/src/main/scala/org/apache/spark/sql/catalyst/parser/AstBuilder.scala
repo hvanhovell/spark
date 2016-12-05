@@ -1036,6 +1036,13 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
   }
 
   /**
+   * Create an [[UnresolvedLambdaFunction]].
+   */
+  override def visitLambda(ctx: LambdaContext): Expression = withOrigin(ctx) {
+    UnresolvedLambdaFunction(expression(ctx.expression), ctx.identifier.asScala.map(_.getText))
+  }
+
+  /**
    * Create a reference to a window frame, i.e. [[WindowSpecReference]].
    */
   override def visitWindowRef(ctx: WindowRefContext): WindowSpecReference = withOrigin(ctx) {
