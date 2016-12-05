@@ -34,7 +34,7 @@ object HigherOrderFunction {
 }
 
 trait HigherOrderFunction extends Expression {
-  override def children: Seq[Expression] = inputs :+ function
+  override def children: Seq[Expression] = (inputs :+ function) ++ variables
 
   /**
    * Inputs to the higher ordered function.
@@ -83,7 +83,7 @@ trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInpu
     input.resolved && ArrayType.acceptsType(input.dataType)
   }
 
-  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, AnyDataType)
+  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, AnyDataType, AnyDataType)
 
   override def eval(input: InternalRow): Any =
     throw new UnsupportedOperationException("Only code-generated evaluation is supported")
@@ -182,7 +182,7 @@ case class ArrayExists(
 
   override def dataType: DataType = BooleanType
 
-  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType)
+  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
   override protected def newInstance(
       variables: Seq[LambdaVariable],
@@ -241,7 +241,7 @@ case class ArrayFilter(
 
   override def dataType: DataType = input.dataType
 
-  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType)
+  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
   override protected def newInstance(
       variables: Seq[LambdaVariable],
@@ -316,7 +316,7 @@ case class ArrayReduce(
   override def dataType: DataType = zero.dataType
 
   override def inputTypes: Seq[AbstractDataType] = {
-    Seq(ArrayType, AnyDataType, zero.dataType)
+    Seq(ArrayType, AnyDataType, zero.dataType, AnyDataType, AnyDataType)
   }
 
   override protected def newInstance(

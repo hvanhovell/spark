@@ -1038,7 +1038,9 @@ class Analyzer(
             case u @ UnresolvedAttribute(name :: Nil) =>
               argumentToVariableMap.find(kv => resolver(kv._1, name)).map(_._2).getOrElse(u)
           }
-        case other => failAnalysis("")
+        case other => failAnalysis(
+          "The function of a higher order function must be a lambda function. However, its class " +
+          s"is ${other.getClass.getCanonicalName}, which is not a lambda function.")
       })
     }
   }
