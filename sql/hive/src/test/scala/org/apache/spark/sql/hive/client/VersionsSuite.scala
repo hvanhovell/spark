@@ -172,7 +172,8 @@ class VersionsSuite extends SparkFunSuite with Logging {
         emptyDir,
         tableName = "src",
         replace = false,
-        holdDDLTime = false)
+        holdDDLTime = false,
+        isSrcLocal = false)
     }
 
     test(s"$version: tableExists") {
@@ -254,6 +255,11 @@ class VersionsSuite extends SparkFunSuite with Logging {
         "default", "src_part", partitions, ignoreIfExists = true)
     }
 
+    test(s"$version: getPartitionNames(catalogTable)") {
+      val partitionNames = (1 to testPartitionCount).map(key2 => s"key1=1/key2=$key2")
+      assert(partitionNames == client.getPartitionNames(client.getTable("default", "src_part")))
+    }
+
     test(s"$version: getPartitions(catalogTable)") {
       assert(testPartitionCount ==
         client.getPartitions(client.getTable("default", "src_part")).size)
@@ -305,7 +311,8 @@ class VersionsSuite extends SparkFunSuite with Logging {
         partSpec,
         replace = false,
         holdDDLTime = false,
-        inheritTableSpecs = false)
+        inheritTableSpecs = false,
+        isSrcLocal = false)
     }
 
     test(s"$version: loadDynamicPartitions") {
