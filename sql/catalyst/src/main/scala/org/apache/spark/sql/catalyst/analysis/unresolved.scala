@@ -424,7 +424,7 @@ case class UnresolvedOrdinal(ordinal: Int)
 /**
  * An unresolved lambda function and its arguments.
  */
-case class UnresolvedLambdaFunction(
+case class LambdaFunction(
     function: Expression,
     arguments: Seq[String])
   extends Expression

@@ -56,7 +56,7 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
    */
   def resolveOperators(rule: PartialFunction[LogicalPlan, LogicalPlan]): LogicalPlan = {
     if (!analyzed) {
-      val afterRuleOnChildren = transformChildren(rule, (t, r) => t.resolveOperators(r))
+      val afterRuleOnChildren = mapChildren(t => t.resolveOperators(rule))
       if (this fastEquals afterRuleOnChildren) {
         CurrentOrigin.withOrigin(origin) {
           rule.applyOrElse(this, identity[LogicalPlan])
@@ -231,7 +231,7 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
   }
 
   /** Performs attribute resolution given a name and a sequence of possible attributes. */
-  protected def resolve(
+  def resolve(
       nameParts: Seq[String],
       input: Seq[Attribute],
       resolver: Resolver): Option[NamedExpression] = {

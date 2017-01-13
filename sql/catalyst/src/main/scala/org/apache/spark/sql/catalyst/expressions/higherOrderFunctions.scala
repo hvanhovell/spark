@@ -18,18 +18,39 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.objects.LambdaVariable
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 
-object HigherOrderFunction {
-  private val curId = new java.util.concurrent.atomic.AtomicInteger()
+/**
+ * A named lambda variable.
+ *
+ * Note that the current implementation does not support interpreted execution.
+ */
+case class NamedLambdaVariable(
+    name: String,
+    dataType: DataType,
+    nullable: Boolean,
+    exprId: ExprId = NamedExpression.newExprId)
+  extends LeafExpression
+  with NamedExpression
+  with Unevaluable {
 
-  def generateVariable(dataType: DataType, nullable: Boolean): LambdaVariable = {
-    val id = curId.getAndIncrement()
-    val loopValue = "loopValue" + id
-    val loopIsNull = "loopIsNull" + id
-    LambdaVariable(loopValue, loopIsNull, dataType, nullable)
+  private val suffix = "_lambda_variable_" + exprId.id
+
+  val value: String = name + suffix
+
+  val isNull: String = "isNull" + suffix
+
+  override def qualifier: Option[String] = None
+
+  override def newInstance(): NamedExpression = copy(exprId = NamedExpression.newExprId)
+
+  override def toAttribute: Attribute = {
+    AttributeReference(name, dataType, nullable, Metadata.empty)(exprId, None, true)
+  }
+
+  override def genCode(ctx: CodegenContext): ExprCode = {
+    ExprCode("", value, isNull)
   }
 }
 
@@ -50,7 +71,7 @@ trait HigherOrderFunction extends Expression {
   /**
    * Variables to bind to the function.
    */
-  def variables: Seq[LambdaVariable]
+  def variables: Seq[NamedLambdaVariable]
 
   /**
    * Function to call for part of the processing, this can either be a regular function or a
@@ -59,17 +80,14 @@ trait HigherOrderFunction extends Expression {
   def function: Expression
 
   /**
-   * Bind Lambda variables for
-   * @return
+   * The number of variables provided by the higher order function.
    */
-  def bindVariables(): HigherOrderFunction
+  def numVariables: Int
 
   /**
-   * Bind the higher order function to a new (hopefully resolved) function. Note that we only
-   * should attempt to bind a function after the inputs have been resolved and variables have
-   * been created.
+   * Bind the lambda variables to the [[HigherOrderFunction]].
    */
-  def bindFunction(function: Expression): HigherOrderFunction
+  def bindLambdaVariables(names: Seq[String]): HigherOrderFunction
 }
 
 trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInputTypes {
@@ -77,29 +95,19 @@ trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInpu
 
   override def inputs: Seq[Expression] = input :: Nil
 
-  lazy val variable: LambdaVariable = variables.head
-
-  override lazy val inputResolved: Boolean = {
-    input.resolved && ArrayType.acceptsType(input.dataType)
-  }
+  lazy val variable: NamedLambdaVariable = variables.head
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, AnyDataType, AnyDataType)
 
   override def eval(input: InternalRow): Any =
     throw new UnsupportedOperationException("Only code-generated evaluation is supported")
 
-  protected def newInstance(
-      variables: Seq[LambdaVariable] = variables,
-      function: Expression = function): ArrayBasedHigherOrderFunction
-
-  override def bindVariables(): ArrayBasedHigherOrderFunction = {
+  protected def createArrayVariable(name: String): NamedLambdaVariable = {
     val ArrayType(elementType, containsNull) = input.dataType
-    newInstance(variables = Seq(HigherOrderFunction.generateVariable(elementType, containsNull)))
+    NamedLambdaVariable(name, elementType, containsNull)
   }
 
-  override def bindFunction(function: Expression): ArrayBasedHigherOrderFunction = {
-    newInstance(function = function)
-  }
+  override def numVariables: Int = 1
 }
 
 /**
@@ -109,7 +117,7 @@ trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInpu
 case class ArrayTransform(
     input: Expression,
     function: Expression,
-    variables: Seq[LambdaVariable] = Nil)
+    variables: Seq[NamedLambdaVariable] = Nil)
   extends ArrayBasedHigherOrderFunction {
 
   def this(input: Expression, function: Expression) = this(input, function, Nil)
@@ -118,10 +126,9 @@ case class ArrayTransform(
 
   override def dataType: DataType = ArrayType(function.dataType, function.nullable)
 
-  override protected def newInstance(
-      variables: Seq[LambdaVariable],
-      function: Expression): ArrayBasedHigherOrderFunction = {
-    ArrayTransform(input, function, variables)
+  override def bindLambdaVariables(names: Seq[String]): ArrayTransform = {
+    assert(names.size == numVariables)
+    ArrayTransform(input, function, createArrayVariable(names.head) :: Nil)
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
@@ -173,7 +180,7 @@ case class ArrayTransform(
 case class ArrayExists(
     input: Expression,
     function: Expression,
-    variables: Seq[LambdaVariable] = Nil)
+    variables: Seq[NamedLambdaVariable] = Nil)
   extends ArrayBasedHigherOrderFunction {
 
   def this(input: Expression, function: Expression) = this(input, function, Nil)
@@ -184,10 +191,9 @@ case class ArrayExists(
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
-  override protected def newInstance(
-      variables: Seq[LambdaVariable],
-      function: Expression): ArrayBasedHigherOrderFunction = {
-    ArrayExists(input, function, variables)
+  override def bindLambdaVariables(names: Seq[String]): ArrayExists = {
+    assert(names.size == numVariables)
+    ArrayExists(input, function, createArrayVariable(names.head) :: Nil)
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
@@ -232,7 +238,7 @@ case class ArrayExists(
 case class ArrayFilter(
     input: Expression,
     function: Expression,
-    variables: Seq[LambdaVariable] = Nil)
+    variables: Seq[NamedLambdaVariable] = Nil)
   extends ArrayBasedHigherOrderFunction {
 
   def this(input: Expression, function: Expression) = this(input, function, Nil)
@@ -243,10 +249,9 @@ case class ArrayFilter(
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
-  override protected def newInstance(
-      variables: Seq[LambdaVariable],
-      function: Expression): ArrayBasedHigherOrderFunction = {
-    ArrayFilter(input, function, variables)
+  override def bindLambdaVariables(names: Seq[String]): ArrayFilter = {
+    assert(names.size == numVariables)
+    ArrayFilter(input, function, createArrayVariable(names.head) :: Nil)
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
@@ -302,7 +307,7 @@ case class ArrayReduce(
     input: Expression,
     zero: Expression,
     function: Expression,
-    variables: Seq[LambdaVariable] = Nil)
+    variables: Seq[NamedLambdaVariable] = Nil)
   extends ArrayBasedHigherOrderFunction {
 
   def this(input: Expression, zero: Expression, function: Expression) = {
@@ -319,18 +324,15 @@ case class ArrayReduce(
     Seq(ArrayType, AnyDataType, zero.dataType, AnyDataType, AnyDataType)
   }
 
-  override protected def newInstance(
-      variables: Seq[LambdaVariable],
-      function: Expression): ArrayBasedHigherOrderFunction = {
-    ArrayReduce(input, zero, function, variables)
+  override def bindLambdaVariables(names: Seq[String]): ArrayReduce = {
+    assert(names.size == numVariables)
+    val Seq(elementName, accName) = names
+    val array = createArrayVariable(elementName)
+    val acc = NamedLambdaVariable(accName, zero.dataType, array.nullable || zero.nullable)
+    ArrayReduce(input, zero, function, Seq(array, acc))
   }
 
-  override def bindVariables(): ArrayBasedHigherOrderFunction = {
-    val ArrayType(elementType, containsNull) = input.dataType
-    newInstance(variables = Seq(
-      HigherOrderFunction.generateVariable(elementType, containsNull),
-      HigherOrderFunction.generateVariable(zero.dataType, containsNull || zero.nullable)))
-  }
+  override def numVariables: Int = 2
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     // Get the array
