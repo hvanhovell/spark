@@ -944,7 +944,7 @@ class Analyzer(
                 case other => other.failAnalysis(
                   "A lambda function should only be used in a higher order function. However, " +
                     s"its class is ${other.getClass.getCanonicalName}, which is not a " +
-                    "higher order function.")
+                    s"higher order function. ${other.sql}")
               }
             }
           case u if !u.childrenResolved => u // Skip until children are resolved.
@@ -982,7 +982,8 @@ class Analyzer(
      * Check if the arguments of a function are either resolved or a lambda function.
      */
     private def resolvedOrLambda(expressions: Seq[Expression]): Boolean = {
-      expressions.forall(e => e.isInstanceOf[LambdaFunction] || e.resolved)
+      val (lambdas, others) = expressions.partition(_.isInstanceOf[LambdaFunction])
+      lambdas.nonEmpty && others.forall(_.resolved)
     }
   }
 

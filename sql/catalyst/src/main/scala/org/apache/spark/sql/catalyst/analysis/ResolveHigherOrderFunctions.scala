@@ -69,7 +69,7 @@ case class ResolveHigherOrderFunctions(conf: CatalystConf) extends Rule[LogicalP
       }
 
       // Bind the the lambda variables to the higher order function
-      val newH = h.bindLambdaVariables(arguments)
+      val newH = h.bind(arguments, expr)
 
       // Resolve nested higher order functions and lambda variable references.
       newH.mapChildren(resolve(_, parentLambdaMap ++ createLambdaMap(newH.variables)))

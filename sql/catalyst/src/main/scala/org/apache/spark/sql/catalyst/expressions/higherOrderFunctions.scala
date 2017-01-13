@@ -50,8 +50,12 @@ case class NamedLambdaVariable(
   }
 
   override def genCode(ctx: CodegenContext): ExprCode = {
-    ExprCode("", value, isNull)
+    ExprCode("", isNull, value)
   }
+
+  override def toString: String = s"lambda $name#${exprId.id}$typeSuffix"
+
+  override def simpleString: String = s"lambda $name#${exprId.id}: ${dataType.simpleString}"
 }
 
 trait HigherOrderFunction extends Expression {
@@ -87,7 +91,7 @@ trait HigherOrderFunction extends Expression {
   /**
    * Bind the lambda variables to the [[HigherOrderFunction]].
    */
-  def bindLambdaVariables(names: Seq[String]): HigherOrderFunction
+  def bind(names: Seq[String], function: Expression): HigherOrderFunction
 }
 
 trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInputTypes {
@@ -126,7 +130,7 @@ case class ArrayTransform(
 
   override def dataType: DataType = ArrayType(function.dataType, function.nullable)
 
-  override def bindLambdaVariables(names: Seq[String]): ArrayTransform = {
+  override def bind(names: Seq[String], function: Expression): ArrayTransform = {
     assert(names.size == numVariables)
     ArrayTransform(input, function, createArrayVariable(names.head) :: Nil)
   }
@@ -191,7 +195,7 @@ case class ArrayExists(
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
-  override def bindLambdaVariables(names: Seq[String]): ArrayExists = {
+  override def bind(names: Seq[String], function: Expression): ArrayExists = {
     assert(names.size == numVariables)
     ArrayExists(input, function, createArrayVariable(names.head) :: Nil)
   }
@@ -249,7 +253,7 @@ case class ArrayFilter(
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, BooleanType, AnyDataType)
 
-  override def bindLambdaVariables(names: Seq[String]): ArrayFilter = {
+  override def bind(names: Seq[String], function: Expression): ArrayFilter = {
     assert(names.size == numVariables)
     ArrayFilter(input, function, createArrayVariable(names.head) :: Nil)
   }
@@ -324,7 +328,7 @@ case class ArrayReduce(
     Seq(ArrayType, AnyDataType, zero.dataType, AnyDataType, AnyDataType)
   }
 
-  override def bindLambdaVariables(names: Seq[String]): ArrayReduce = {
+  override def bind(names: Seq[String], function: Expression): ArrayReduce = {
     assert(names.size == numVariables)
     val Seq(elementName, accName) = names
     val array = createArrayVariable(elementName)
