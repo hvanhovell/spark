@@ -57,7 +57,7 @@ select reduce(array(1,2,3,4,5), 0, (x, X) -> x) as v
 struct<>
 -- !query 6 output
 org.apache.spark.sql.AnalysisException
-Lambda function arguments should not have names that are semantically the same: 'x' @ 0 and 'X' @ 1; line 1 pos 7
+Lambda function arguments should not have names that are semantically the same: 'x' @ 0 and 'X' @ 1; line 1 pos 35
 
 
 -- !query 7
@@ -66,7 +66,7 @@ select reduce(array(1,2,3,4,5), 0, x -> x) as v
 struct<>
 -- !query 7 output
 org.apache.spark.sql.AnalysisException
-The number of lambda function arguments '1' does not match the number of arguments expected by the higher order function '2'.; line 1 pos 7
+The number of lambda function arguments '1' does not match the number of arguments expected by the higher order function '2'.; line 1 pos 35
 
 
 -- !query 8

@@ -231,7 +231,7 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
   }
 
   /** Performs attribute resolution given a name and a sequence of possible attributes. */
-  def resolve(
+  protected def resolve(
       nameParts: Seq[String],
       input: Seq[Attribute],
       resolver: Resolver): Option[NamedExpression] = {
