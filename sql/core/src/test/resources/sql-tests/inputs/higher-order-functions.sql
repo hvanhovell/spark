@@ -1,29 +1,36 @@
+create or replace temporary view nested as values
+  (1, array(32, 97), array(array(12, 99), array(123, 42), array(1))),
+  (2, array(77, -76), array(array(6, 96, 65), array(-1, -2))),
+  (3, array(12), array(array(17)))
+  as t(x, ys, zs);
+
 -- Only allow lambda's in higher order functions.
 select upper(x -> x) as v;
 
 -- Identity transform an array
-select transform(array(1,2,3,4,5), x -> x) as v;
+select transform(zs, z -> z) as v from nested;
 
 -- Transform an array
-select transform(array(1,2,3,4,5), x -> x * x) as v;
+select transform(ys, y -> y * y) as v from nested;
 
 -- Check for element existence
-select exists(array(1,2,3,4,5), x -> x = 2) as v;
+select exists(ys, y -> y > 30) as v from nested;
 
 -- Filer.
-select filter(array(1,2,3,4,5), x -> x > 2) as v;
+select filter(ys, y -> y > 30) as v from nested;
 
 -- Reduce.
-select reduce(array(1,2,3,4,5), 0, (x, a) -> x + a) as v;
+select reduce(ys, 0, (y, a) -> y + a + x) as v from nested;
 
 -- Do not allow ambiguous lambda arguments.
-select reduce(array(1,2,3,4,5), 0, (x, X) -> x) as v;
+select reduce(ys, 0, (y, Y) -> y) as v from nested;
 
--- Numer of arguments should match the expected number of arguments.
-select reduce(array(1,2,3,4,5), 0, x -> x) as v;
+-- Number of arguments should match the expected number of arguments.
+select reduce(ys, 0, y -> y) as v from nested;
+select reduce(ys, 0, (a, b, c) -> a + b + c) as v from nested;
 
 -- Filter nested arrays
-select transform(array(array(1,2), array(2,3)), x -> filter(x, y -> y > 2)) as v;
+select transform(zs, z -> filter(z, zz -> zz > 50)) as v from nested;
 
 -- Reduce nested arrays
-select transform(array(array(1,2), array(2,3)), x -> reduce(x, 1, (y, z) -> y * z)) as v;
+select transform(zs, z -> reduce(z, 1, (acc, val) -> acc * val * size(z))) as v from nested;
