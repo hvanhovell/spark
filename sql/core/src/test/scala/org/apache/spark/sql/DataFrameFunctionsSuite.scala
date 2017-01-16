@@ -448,6 +448,25 @@ class DataFrameFunctionsSuite extends QueryTest with SharedSQLContext {
       rand(Random.nextLong()), randn(Random.nextLong())
     ).foreach(assertValuesDoNotChangeAfterCoalesceOrUnion(_))
   }
+
+  test("array higher order functions") {
+    val df = Seq((1, Seq(1, 2, 3)), (2, Seq(4, 5, 6))).toDF("key", "values")
+    checkAnswer(
+      df.select(transform($"values", $"x" -> ($"x" + 1))),
+      Row(Seq(2, 3, 4)) :: Row(Seq(5, 6, 7)) :: Nil)
+
+    checkAnswer(
+      df.select(filter($"values", $"x" -> ($"x" > 3))),
+      Row(Seq()) :: Row(Seq(4, 5, 6)) :: Nil)
+
+    checkAnswer(
+      df.select(exists($"values", $"x" -> ($"x" > 3))),
+      Row(false) :: Row(true) :: Nil)
+
+    checkAnswer(
+      df.select(reduce($"values", $"key", ($"x", $"y") -> ($"x" + $"y"))),
+      Row(7) :: Row(17) :: Nil)
+  }
 }
 
 object DataFrameFunctionsSuite {

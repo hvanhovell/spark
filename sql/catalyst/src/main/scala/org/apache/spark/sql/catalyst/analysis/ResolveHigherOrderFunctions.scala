@@ -77,7 +77,7 @@ case class ResolveHigherOrderFunctions(conf: CatalystConf) extends Rule[LogicalP
     case h: HigherOrderFunction if h.resolved =>
       h.mapChildren(resolve(_, parentLambdaMap ++ createLambdaMap(h.variables)))
 
-    case u @ UnresolvedAttribute(name :: Nil) =>
+    case u @ UnresolvedAttribute(Seq(name)) =>
       parentLambdaMap.getOrElse(canonicalizer(name), u)
 
     case _ =>

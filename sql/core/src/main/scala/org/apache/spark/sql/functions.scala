@@ -24,7 +24,7 @@ import scala.util.Try
 
 import org.apache.spark.annotation.{Experimental, InterfaceStability}
 import org.apache.spark.sql.catalyst.ScalaReflection
-import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.{LambdaFunction, Star, UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
@@ -3021,6 +3021,55 @@ object functions {
    * @since 1.5.0
    */
   def sort_array(e: Column, asc: Boolean): Column = withExpr { SortArray(e.expr, lit(asc).expr) }
+
+  private def toName(c: Column): String = c.expr match {
+    case UnresolvedAttribute(Seq(name)) => name
+    case _ => throw new AnalysisException(s"Column '$c' is not a single attribute.")
+  }
+
+  /**
+   * Transforms the input array using the given lambda function.
+   *
+   * @group collection_funcs
+   * @since 2.2.0
+   */
+  def transform(e: Column, lambda: (Column, Column)): Column = withExpr {
+    val (arg, func) = lambda
+    ArrayTransform(e.expr, LambdaFunction(func.expr, Seq(toName(arg))))
+  }
+
+  /**
+   * Filters the input array using the given lambda function.
+   *
+   * @group collection_funcs
+   * @since 2.2.0
+   */
+  def filter(e: Column, lambda: (Column, Column)): Column = withExpr {
+    val (arg, func) = lambda
+    ArrayFilter(e.expr, LambdaFunction(func.expr, Seq(toName(arg))))
+  }
+
+  /**
+   * Tests whether a predicate holds for one or more elements in the array.
+   *
+   * @group collection_funcs
+   * @since 2.2.0
+   */
+  def exists(e: Column, lambda: (Column, Column)): Column = withExpr {
+    val (arg, func) = lambda
+    ArrayExists(e.expr, LambdaFunction(func.expr, Seq(toName(arg))))
+  }
+
+  /**
+   * Applies a binary operator to a start value and all elements in the array.
+   *
+   * @group collection_funcs
+   * @since 2.2.0
+   */
+  def reduce(e: Column, zero: Column, lambda: ((Column, Column), Column)): Column = withExpr {
+    val ((arg1, arg2), func) = lambda
+    ArrayReduce(e.expr, zero.expr, LambdaFunction(func.expr, Seq(toName(arg1), toName(arg2))))
+  }
 
   //////////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////////

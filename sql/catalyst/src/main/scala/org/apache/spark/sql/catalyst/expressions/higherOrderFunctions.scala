@@ -353,6 +353,7 @@ case class ArrayReduce(
     val fEval = function.genCode(ctx)
     val code = s"""
     |${childGen.code}
+    |${zeroGen.code}
     |${ctx.javaType(dataType)} ${acc.value} = ${zeroGen.value};
     |boolean ${acc.isNull} = ${zeroGen.isNull};
     |if (!${childGen.isNull}) {
