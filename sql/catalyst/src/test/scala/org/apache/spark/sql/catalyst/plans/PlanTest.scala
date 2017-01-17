@@ -47,6 +47,8 @@ abstract class PlanTest extends SparkFunSuite with PredicateHelper {
         Alias(a.child, a.name)(exprId = ExprId(0))
       case ae: AggregateExpression =>
         ae.copy(resultId = ExprId(0))
+      case lv: NamedLambdaVariable =>
+        lv.copy(exprId = ExprId(0))
     }
   }
 

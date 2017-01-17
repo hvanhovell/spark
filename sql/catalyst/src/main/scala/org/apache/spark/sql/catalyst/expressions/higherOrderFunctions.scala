@@ -58,6 +58,10 @@ case class NamedLambdaVariable(
   override def simpleString: String = s"lambda $name#${exprId.id}: ${dataType.simpleString}"
 }
 
+/**
+ * A higher order function takes a (lambda) function and applies this to a (complex) Spark object.
+ * The function produces a number of variables which can be consumed by some lambda function.
+ */
 trait HigherOrderFunction extends Expression {
   override def children: Seq[Expression] = (inputs :+ function) ++ variables
 
@@ -68,28 +72,30 @@ trait HigherOrderFunction extends Expression {
 
   /**
    * All inputs have been resolved. This means that the variables should be known, and that we can
-   * start binding the function.
+   * start binding the lambda function.
    */
   lazy val inputResolved: Boolean = inputs.forall(_.resolved)
 
   /**
-   * Variables to bind to the function.
+   * Variables produced by the higher order function.
    */
   def variables: Seq[NamedLambdaVariable]
 
   /**
    * Function to call for part of the processing, this can either be a regular function or a
-   * lambda function.
+   * lambda function. This function should consume the produced lambda variables.
    */
   def function: Expression
 
   /**
-   * The number of variables provided by the higher order function.
+   * The number of variables provided by the higher order function. This can be used for
+   * validation.
    */
   def numVariables: Int
 
   /**
-   * Bind the lambda variables to the [[HigherOrderFunction]].
+   * Bind the lambda variables and function to the [[HigherOrderFunction]]. Lambda variables are
+   * guaranteed to be fixed after binding, and should stay fixed until we rebind.
    */
   def bind(names: Seq[String], function: Expression): HigherOrderFunction
 }
@@ -118,6 +124,8 @@ trait ArrayBasedHigherOrderFunction extends HigherOrderFunction with ExpectsInpu
  * Transform elements in an array using the transform function. This is similar to
  * a `map` in functional programming.
  */
+@ExpressionDescription(usage =
+  "_FUNC_(expr, func) - Transforms elements in an array using the function.")
 case class ArrayTransform(
     input: Expression,
     function: Expression,
@@ -179,8 +187,10 @@ case class ArrayTransform(
 }
 
 /**
- * Test if a predicate holds for at least one element in the array.
+ * Tests whether a predicate holds for one or more elements in the array.
  */
+@ExpressionDescription(usage =
+  "_FUNC_(expr, pred) - Tests whether a predicate holds for one or more elements in the array.")
 case class ArrayExists(
     input: Expression,
     function: Expression,
@@ -237,8 +247,10 @@ case class ArrayExists(
 }
 
 /**
- * Filter array elements using a predicate.
+ * Filters the input array using the given lambda function.
  */
+@ExpressionDescription(usage =
+  "_FUNC_(expr, pred) - Filters the input array using the given predicate.")
 case class ArrayFilter(
     input: Expression,
     function: Expression,
@@ -307,6 +319,15 @@ case class ArrayFilter(
   }
 }
 
+/**
+ * Applies a binary operator to a start value and all elements in the array.
+ */
+@ExpressionDescription(
+  usage =
+    """
+      _FUNC_(expr, start, binop) - Applies a binary operator to a start value and all elements in
+      the array, and reduces this to a single value.
+    """)
 case class ArrayReduce(
     input: Expression,
     zero: Expression,

@@ -22,6 +22,14 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunctio
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 
+/**
+ * Resolve higher order functions. A higher order function can take a LambdaFunction as its
+ * function and this rule makes sure that lambda functions are properly bound to the higher
+ * order function and the lambda variables it exposes.
+ *
+ * This function resolves lambda variables by name, and allows nested higher order functions
+ * to define the same name; in this case resolution will use the most nested variable.
+ */
 case class ResolveHigherOrderFunctions(conf: CatalystConf) extends Rule[LogicalPlan] {
   type LambdaVariableMap = Map[String, NamedLambdaVariable]
 
@@ -41,50 +49,55 @@ case class ResolveHigherOrderFunctions(conf: CatalystConf) extends Rule[LogicalP
   }
 
   private def resolve(e: Expression, parentLambdaMap: LambdaVariableMap): Expression = e match {
-    case h: HigherOrderFunction if h.inputResolved && h.function.isInstanceOf[LambdaFunction] =>
-      val lambda @ LambdaFunction(expr, arguments) = h.function.asInstanceOf[LambdaFunction]
-
-      // Make sure the lambda's arguments are not ambiguous.
-      var i = 0
-      val length = arguments.size
-      while (i < length) {
-        var j = i + 1
-        while (j < length) {
-          if (conf.resolver(arguments(i), arguments(j))) {
-            lambda.failAnalysis(
-              "Lambda function arguments should not have names that are semantically the " +
-                s"same: '${arguments(i)}' @ $i and '${arguments(j)}' @ $j")
+    case h: HigherOrderFunction if h.inputResolved && !h.function.resolved =>
+      // Bind the lambda function if we have to.
+      val newH = h.function match {
+        case lambda @ LambdaFunction(expr, arguments) =>
+          // Make sure the lambda's arguments are not ambiguous.
+          var i = 0
+          val length = arguments.size
+          while (i < length) {
+            var j = i + 1
+            while (j < length) {
+              if (conf.resolver(arguments(i), arguments(j))) {
+                lambda.failAnalysis(
+                  "Lambda function arguments should not have names that are semantically the " +
+                    s"same: '${arguments(i)}' @ $i and '${arguments(j)}' @ $j")
+              }
+              j += 1
+            }
+            i += 1
           }
-          j += 1
-        }
-        i += 1
-      }
 
-      // Make sure the number of arguments given match the number of arguments required.
-      if (arguments.size != h.numVariables) {
-        lambda.failAnalysis(
-          s"The number of lambda function arguments '${arguments.size}' does not " +
-            "match the number of arguments expected by the higher order function " +
-            s"'${h.numVariables}'.")
-      }
+          // Make sure the number of arguments given match the number of arguments required.
+          if (arguments.size != h.numVariables) {
+            lambda.failAnalysis(
+              s"The number of lambda function arguments '${arguments.size}' does not " +
+                "match the number of arguments expected by the higher order function " +
+                s"'${h.numVariables}'.")
+          }
 
-      // Bind the the lambda variables to the higher order function
-      val newH = h.bind(arguments, expr)
+          // Bind the the lambda variables to the higher order function
+          h.bind(arguments, expr)
+        case _ => h
+      }
 
       // Resolve nested higher order functions and lambda variable references.
-      newH.mapChildren(resolve(_, parentLambdaMap ++ createLambdaMap(newH.variables)))
+      val lambdaMap = newH.variables.map(v => canonicalizer(v.name) -> v).toMap
+      newH.mapChildren(resolve(_, parentLambdaMap ++ lambdaMap))
 
-    case h: HigherOrderFunction if h.resolved =>
-      h.mapChildren(resolve(_, parentLambdaMap ++ createLambdaMap(h.variables)))
+    case l: LambdaFunction =>
+      // Do not resolve a lambda function. They can only be resolved in combination with a higher
+      // order function.
+      l
 
     case u @ UnresolvedAttribute(Seq(name)) =>
       parentLambdaMap.getOrElse(canonicalizer(name), u)
 
-    case _ =>
+    case _ if !e.resolved =>
       e.mapChildren(resolve(_, parentLambdaMap))
-  }
 
-  private def createLambdaMap(variables: Seq[NamedLambdaVariable]): LambdaVariableMap = {
-    variables.map(v => canonicalizer(v.name) -> v).toMap
+    case _ =>
+      e
   }
 }

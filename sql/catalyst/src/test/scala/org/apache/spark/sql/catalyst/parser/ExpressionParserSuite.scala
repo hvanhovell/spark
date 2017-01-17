@@ -544,4 +544,9 @@ class ExpressionParserSuite extends PlanTest {
     val complexName2 = FunctionIdentifier("ba``r", Some("fo``o"))
     assertEqual(complexName2.quotedString, UnresolvedAttribute("fo``o.ba``r"))
   }
+
+  test("lambda functions") {
+    assertEqual("x -> x + 1", LambdaFunction('x + 1, Seq("x")))
+    assertEqual("(x, y) -> x + y", LambdaFunction('x + 'y, Seq("x", "y")))
+  }
 }
