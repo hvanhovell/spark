@@ -456,7 +456,7 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
     // Collect all window specifications defined in the WINDOW clause.
     val baseWindowMap = ctx.namedWindow.asScala.map {
       wCtx =>
-        (wCtx.identifier.getText, typedVisit[WindowSpec](wCtx.windowSpec))
+        (wCtx.identifier.getText, typedVisit[WindowSpecification](wCtx.windowSpec))
     }.toMap
 
     // Handle cases like
@@ -1012,12 +1012,10 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
     val function = UnresolvedFunction(visitFunctionName(ctx.qualifiedName), arguments, isDistinct)
 
     // Check if the function is evaluated in a windowed context.
-    ctx.windowSpec match {
-      case spec: WindowRefContext =>
-        UnresolvedWindowExpression(function, visitWindowRef(spec))
-      case spec: WindowDefContext =>
-        WindowExpression(function, visitWindowDef(spec))
-      case _ => function
+    if (ctx.windowSpec != null) {
+      WindowExpression(function, typedVisit(ctx.windowSpec))
+    } else {
+      function
     }
   }
 
@@ -1066,46 +1064,30 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
         case SqlBaseParser.RANGE => RangeFrame
         case SqlBaseParser.ROWS => RowFrame
       }
-
-      SpecifiedWindowFrame(
+      WindowFrame(
         frameType,
         visitFrameBound(frame.start),
         Option(frame.end).map(visitFrameBound).getOrElse(CurrentRow))
     }
 
-    WindowSpecDefinition(
-      partition,
-      order,
-      frameSpecOption.getOrElse(UnspecifiedFrame))
+    WindowSpecDefinition(partition, order, frameSpecOption)
   }
 
   /**
-   * Create or resolve a [[FrameBoundary]]. Simple math expressions are allowed for Value
-   * Preceding/Following boundaries. These expressions must be constant (foldable) and return an
-   * integer value.
+   * Create or resolve a frame boundary expressions.
    */
-  override def visitFrameBound(ctx: FrameBoundContext): FrameBoundary = withOrigin(ctx) {
-    // We currently only allow foldable integers.
-    def value: Int = {
-      val e = expression(ctx.expression)
-      validate(e.resolved && e.foldable && e.dataType == IntegerType,
-        "Frame bound value must be a constant integer.",
-        ctx)
-      e.eval().asInstanceOf[Int]
-    }
-
-    // Create the FrameBoundary
+  override def visitFrameBound(ctx: FrameBoundContext): AnyRef = withOrigin(ctx) {
     ctx.boundType.getType match {
       case SqlBaseParser.PRECEDING if ctx.UNBOUNDED != null =>
-        UnboundedPreceding
+        Unbounded
       case SqlBaseParser.PRECEDING =>
-        ValuePreceding(value)
+        UnaryMinus(expression(ctx.expression))
       case SqlBaseParser.CURRENT =>
         CurrentRow
       case SqlBaseParser.FOLLOWING if ctx.UNBOUNDED != null =>
-        UnboundedFollowing
+        Unbounded
       case SqlBaseParser.FOLLOWING =>
-        ValueFollowing(value)
+        expression(ctx.expression)
     }
   }
 

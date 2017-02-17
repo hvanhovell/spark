@@ -205,7 +205,7 @@ class Analyzer(
       case WithWindowDefinition(windowDefinitions, child) =>
         child.transform {
           case p => p.transformExpressions {
-            case UnresolvedWindowExpression(c, WindowSpecReference(windowName)) =>
+            case WindowExpression(c, WindowSpecReference(windowName)) =>
               val errorMessage =
                 s"Window specification $windowName is not defined in the WINDOW clause."
               val windowSpecDefinition =
@@ -1939,7 +1939,7 @@ class Analyzer(
       // Second, we group extractedWindowExprBuffer based on their Partition and Order Specs.
       val groupedWindowExpressions = extractedWindowExprBuffer.groupBy { expr =>
         val distinctWindowSpec = expr.collect {
-          case window: WindowExpression => window.windowSpec
+          case WindowExpression(_, spec) => spec
         }.distinct
 
         // We do a final check and see if we only have a single Window Spec defined in an
@@ -2101,18 +2101,14 @@ class Analyzer(
   object ResolveWindowFrame extends Rule[LogicalPlan] {
     def apply(plan: LogicalPlan): LogicalPlan = plan transform {
       case logical: LogicalPlan => logical transformExpressions {
-        case WindowExpression(wf: WindowFunction,
-        WindowSpecDefinition(_, _, f: SpecifiedWindowFrame))
-          if wf.frame != UnspecifiedFrame && wf.frame != f =>
+        case WindowExpression(wf: WindowFunction, WindowSpecDefinition(_, _, Some(f)))
+             if wf.frame != f =>
           failAnalysis(s"Window Frame $f must match the required frame ${wf.frame}")
-        case WindowExpression(wf: WindowFunction,
-        s @ WindowSpecDefinition(_, o, UnspecifiedFrame))
-          if wf.frame != UnspecifiedFrame =>
-          WindowExpression(wf, s.copy(frameSpecification = wf.frame))
-        case we @ WindowExpression(e, s @ WindowSpecDefinition(_, o, UnspecifiedFrame))
-          if e.resolved =>
-          val frame = SpecifiedWindowFrame.defaultWindowFrame(o.nonEmpty, acceptWindowFrame = true)
-          we.copy(windowSpec = s.copy(frameSpecification = frame))
+        case WindowExpression(wf: WindowFunction, s @ WindowSpecDefinition(_, _, None)) =>
+          WindowExpression(wf, s.copy(frameSpecification = Option(wf.frame)))
+        case we @ WindowExpression(e, s @ WindowSpecDefinition(_, o, None)) if e.resolved =>
+          val frame = WindowFrame.defaultWindowFrame(o.nonEmpty, acceptWindowFrame = true)
+          we.copy(windowSpec = s.copy(frameSpecification = Option(frame)))
       }
     }
   }
@@ -2123,12 +2119,14 @@ class Analyzer(
   object ResolveWindowOrder extends Rule[LogicalPlan] {
     def apply(plan: LogicalPlan): LogicalPlan = plan transform {
       case logical: LogicalPlan => logical transformExpressions {
-        case WindowExpression(wf: WindowFunction, spec) if spec.orderSpec.isEmpty =>
+        case WindowExpression(wf: WindowFunction, WindowSpecDefinition(_, orderSpec, _))
+             if orderSpec.isEmpty =>
           failAnalysis(s"Window function $wf requires window to be ordered, please add ORDER BY " +
             s"clause. For example SELECT $wf(value_expr) OVER (PARTITION BY window_partition " +
             s"ORDER BY window_ordering) from table")
-        case WindowExpression(rank: RankLike, spec) if spec.resolved =>
-          val order = spec.orderSpec.map(_.child)
+        case WindowExpression(rank: RankLike, spec @ WindowSpecDefinition(_, orderSpec, _))
+             if spec.resolved =>
+          val order = orderSpec.map(_.child)
           WindowExpression(rank.withOrder(order), spec)
       }
     }

@@ -266,7 +266,7 @@ class ColumnPruningSuite extends PlanTest {
 
   test("Column pruning on Window with useless aggregate functions") {
     val input = LocalRelation('a.int, 'b.string, 'c.double, 'd.int)
-    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     val originalQuery = input.groupBy('a, 'c, 'd)('a, 'c, 'd, winExpr.as('window)).select('a, 'c)
@@ -278,7 +278,7 @@ class ColumnPruningSuite extends PlanTest {
 
   test("Column pruning on Window with selected agg expressions") {
     val input = LocalRelation('a.int, 'b.string, 'c.double, 'd.int)
-    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     val originalQuery =
@@ -294,7 +294,7 @@ class ColumnPruningSuite extends PlanTest {
 
   test("Column pruning on Window in select") {
     val input = LocalRelation('a.int, 'b.string, 'c.double, 'd.int)
-    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec = windowSpec('a :: Nil, 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     val originalQuery = input.select('a, 'b, 'c, 'd, winExpr.as('window)).select('a, 'c)

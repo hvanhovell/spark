@@ -148,7 +148,7 @@ class AnalysisErrorSuite extends AnalysisTest {
         WindowSpecDefinition(
           UnresolvedAttribute("a") :: Nil,
           SortOrder(UnresolvedAttribute("b"), Ascending) :: Nil,
-          UnspecifiedFrame)).as('window)),
+          None)).as('window)),
     "not supported within a window function" :: Nil)
 
   errorTest(
@@ -159,7 +159,7 @@ class AnalysisErrorSuite extends AnalysisTest {
         WindowSpecDefinition(
           UnresolvedAttribute("a") :: Nil,
           SortOrder(UnresolvedAttribute("b"), Ascending) :: Nil,
-          UnspecifiedFrame)).as('window)),
+          None)).as('window)),
     "Distinct window functions are not supported" :: Nil)
 
   errorTest(
@@ -180,7 +180,7 @@ class AnalysisErrorSuite extends AnalysisTest {
         WindowSpecDefinition(
           UnresolvedAttribute("a") :: Nil,
           SortOrder(UnresolvedAttribute("b"), Ascending) :: Nil,
-          SpecifiedWindowFrame(RangeFrame, ValueFollowing(1), ValueFollowing(2)))).as('window)),
+          Option(WindowFrame(RangeFrame, Literal(1), Literal(2))))).as('window)),
     "window frame" :: "must match the required frame" :: Nil)
 
   errorTest(

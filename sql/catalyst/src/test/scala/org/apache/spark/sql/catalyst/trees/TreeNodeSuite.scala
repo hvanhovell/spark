@@ -417,20 +417,14 @@ class TreeNodeSuite extends SparkFunSuite {
         "bucketColumnNames" -> "[bucket]",
         "sortColumnNames" -> "[sort]"))
 
-    // Converts FrameBoundary to JSON
-    assertJSON(
-      ValueFollowing(3),
-      JObject(
-        "product-class" -> classOf[ValueFollowing].getName,
-        "value" -> 3))
 
     // Converts WindowFrame to JSON
     assertJSON(
-      SpecifiedWindowFrame(RowFrame, UnboundedFollowing, CurrentRow),
+      WindowFrame(RowFrame, Unbounded, CurrentRow),
       JObject(
-        "product-class" -> classOf[SpecifiedWindowFrame].getName,
+        "product-class" -> classOf[WindowFrame].getName,
         "frameType" -> JObject("object" -> JString(RowFrame.getClass.getName)),
-        "frameStart" -> JObject("object" -> JString(UnboundedFollowing.getClass.getName)),
+        "frameStart" -> JObject("object" -> JString(Unbounded.getClass.getName)),
         "frameEnd" -> JObject("object" -> JString(CurrentRow.getClass.getName))))
 
     // Converts Partitioning to JSON

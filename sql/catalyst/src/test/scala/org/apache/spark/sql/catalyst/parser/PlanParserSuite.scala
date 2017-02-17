@@ -141,7 +141,7 @@ class PlanParserSuite extends PlanTest {
     val baseSql = "select * from t"
     val basePlan = table("t").select(star())
 
-    val ws = Map("w1" -> WindowSpecDefinition(Seq.empty, Seq.empty, UnspecifiedFrame))
+    val ws = Map("w1" -> WindowSpecDefinition(Seq.empty, Seq.empty, None))
     val limitWindowClauses = Seq(
       ("", (p: LogicalPlan) => p),
       (" limit 10", (p: LogicalPlan) => p.limit(10)),
@@ -240,7 +240,7 @@ class PlanParserSuite extends PlanTest {
     val sql = "select * from t"
     val plan = table("t").select(star())
     val spec = WindowSpecDefinition(Seq('a, 'b), Seq('c.asc),
-      SpecifiedWindowFrame(RowFrame, ValuePreceding(1), ValueFollowing(1)))
+      Option(WindowFrame(RangeFrame, -Literal(1), Literal(1))))
 
     // Test window resolution.
     val ws1 = Map("w1" -> spec, "w2" -> spec, "w3" -> spec)

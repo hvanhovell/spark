@@ -837,7 +837,7 @@ class FilterPushdownSuite extends PlanTest {
   }
 
   test("Window: predicate push down -- basic") {
-    val winExpr = windowExpr(count('b), windowSpec('a :: Nil, 'b.asc :: Nil, UnspecifiedFrame))
+    val winExpr = windowExpr(count('b), windowSpec('a :: Nil, 'b.asc :: Nil))
 
     val originalQuery = testRelation.select('a, 'b, 'c, winExpr.as('window)).where('a > 1)
     val correctAnswer = testRelation
@@ -850,7 +850,7 @@ class FilterPushdownSuite extends PlanTest {
 
   test("Window: predicate push down -- predicates with compound predicate using only one column") {
     val winExpr =
-      windowExpr(count('b), windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame))
+      windowExpr(count('b), windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil))
 
     val originalQuery = testRelation.select('a, 'b, 'c, winExpr.as('window)).where('a * 3 > 15)
     val correctAnswer = testRelation
@@ -862,7 +862,7 @@ class FilterPushdownSuite extends PlanTest {
   }
 
   test("Window: predicate push down -- multi window expressions with the same window spec") {
-    val winSpec = windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec = windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil)
     val winExpr1 = windowExpr(count('b), winSpec)
     val winExpr2 = windowExpr(sum('b), winSpec)
     val originalQuery = testRelation
@@ -879,9 +879,9 @@ class FilterPushdownSuite extends PlanTest {
 
   test("Window: predicate push down -- multi window specification - 1") {
     // order by clauses are different between winSpec1 and winSpec2
-    val winSpec1 = windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec1 = windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil)
     val winExpr1 = windowExpr(count('b), winSpec1)
-    val winSpec2 = windowSpec('a.attr :: 'b.attr :: Nil, 'a.asc :: Nil, UnspecifiedFrame)
+    val winSpec2 = windowSpec('a.attr :: 'b.attr :: Nil, 'a.asc :: Nil)
     val winExpr2 = windowExpr(count('b), winSpec2)
     val originalQuery = testRelation
       .select('a, 'b, 'c, winExpr1.as('window1), winExpr2.as('window2)).where('a > 1)
@@ -911,9 +911,9 @@ class FilterPushdownSuite extends PlanTest {
 
   test("Window: predicate push down -- multi window specification - 2") {
     // partitioning clauses are different between winSpec1 and winSpec2
-    val winSpec1 = windowSpec('a.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec1 = windowSpec('a.attr :: Nil, 'b.asc :: Nil)
     val winExpr1 = windowExpr(count('b), winSpec1)
-    val winSpec2 = windowSpec('b.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame)
+    val winSpec2 = windowSpec('b.attr :: Nil, 'b.asc :: Nil)
     val winExpr2 = windowExpr(count('a), winSpec2)
     val originalQuery = testRelation
       .select('a, winExpr1.as('window1), 'b, 'c, winExpr2.as('window2)).where('b > 1)
@@ -943,7 +943,7 @@ class FilterPushdownSuite extends PlanTest {
 
   test("Window: predicate push down -- predicates with multiple partitioning columns") {
     val winExpr =
-      windowExpr(count('b), windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil, UnspecifiedFrame))
+      windowExpr(count('b), windowSpec('a.attr :: 'b.attr :: Nil, 'b.asc :: Nil))
 
     val originalQuery = testRelation.select('a, 'b, 'c, winExpr.as('window)).where('a + 'b > 1)
     val correctAnswer = testRelation
@@ -960,14 +960,12 @@ class FilterPushdownSuite extends PlanTest {
   ignore("Window: predicate push down -- complex predicate with the same expressions") {
     val winSpec = windowSpec(
       partitionSpec = 'a.attr + 'b.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     val winSpecAnalyzed = windowSpec(
       partitionSpec = '_w0.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExprAnalyzed = windowExpr(count('b), winSpecAnalyzed)
 
     val originalQuery = testRelation.select('a, 'b, 'c, winExpr.as('window)).where('a + 'b > 1)
@@ -982,8 +980,7 @@ class FilterPushdownSuite extends PlanTest {
   test("Window: no predicate push down -- predicates are not from partitioning keys") {
     val winSpec = windowSpec(
       partitionSpec = 'a.attr :: 'b.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     // No push down: the predicate is c > 1, but the partitioning key is (a, b).
@@ -998,8 +995,7 @@ class FilterPushdownSuite extends PlanTest {
   test("Window: no predicate push down -- partial compound partition key") {
     val winSpec = windowSpec(
       partitionSpec = 'a.attr + 'b.attr :: 'b.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     // No push down: the predicate is a > 1, but the partitioning key is (a + b, b)
@@ -1007,8 +1003,7 @@ class FilterPushdownSuite extends PlanTest {
 
     val winSpecAnalyzed = windowSpec(
       partitionSpec = '_w0.attr :: 'b.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExprAnalyzed = windowExpr(count('b), winSpecAnalyzed)
     val correctAnswer = testRelation.select('a, 'b, 'c, ('a + 'b).as("_w0"))
       .window(winExprAnalyzed.as('window) :: Nil, '_w0 :: 'b.attr :: Nil, 'b.asc :: Nil)
@@ -1019,7 +1014,7 @@ class FilterPushdownSuite extends PlanTest {
 
   test("Window: no predicate push down -- complex predicates containing non partitioning columns") {
     val winSpec =
-      windowSpec(partitionSpec = 'b.attr :: Nil, orderSpec = 'b.asc :: Nil, UnspecifiedFrame)
+      windowSpec(partitionSpec = 'b.attr :: Nil, orderSpec = 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     // No push down: the predicate is a + b > 1, but the partitioning key is b.
@@ -1036,14 +1031,12 @@ class FilterPushdownSuite extends PlanTest {
   test("Window: no predicate push down -- complex predicate with different expressions") {
     val winSpec = windowSpec(
       partitionSpec = 'a.attr + 'b.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExpr = windowExpr(count('b), winSpec)
 
     val winSpecAnalyzed = windowSpec(
       partitionSpec = '_w0.attr :: Nil,
-      orderSpec = 'b.asc :: Nil,
-      UnspecifiedFrame)
+      orderSpec = 'b.asc :: Nil)
     val winExprAnalyzed = windowExpr(count('b), winSpecAnalyzed)
 
     // No push down: the predicate is a + b > 1, but the partitioning key is a + b.

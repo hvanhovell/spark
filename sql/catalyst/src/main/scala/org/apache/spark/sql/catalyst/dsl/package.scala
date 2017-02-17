@@ -180,7 +180,7 @@ package object dsl {
     def windowSpec(
         partitionSpec: Seq[Expression],
         orderSpec: Seq[SortOrder],
-        frame: WindowFrame): WindowSpecDefinition =
+        frame: Option[WindowFrame] = None): WindowSpecDefinition =
       WindowSpecDefinition(partitionSpec, orderSpec, frame)
 
     def windowExpr(windowFunc: Expression, windowSpec: WindowSpecDefinition): WindowExpression =

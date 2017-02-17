@@ -20,8 +20,7 @@ package org.apache.spark.sql.catalyst
 import java.sql.Timestamp
 
 import org.apache.spark.sql.catalyst.dsl.expressions._
-import org.apache.spark.sql.catalyst.expressions.{If, Literal, SpecifiedWindowFrame, TimeAdd,
-  TimeSub, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.{If, Literal, TimeAdd, TimeSub, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.unsafe.types.CalendarInterval
 
 class ExpressionSQLBuilderSuite extends SQLBuilderTest {
@@ -91,10 +90,9 @@ class ExpressionSQLBuilderSuite extends SQLBuilderTest {
   }
 
   test("window specification") {
-    val frame = SpecifiedWindowFrame.defaultWindowFrame(
+    val frame = Option(WindowFrame.defaultWindowFrame(
       hasOrderSpecification = true,
-      acceptWindowFrame = true
-    )
+      acceptWindowFrame = true))
 
     checkSQL(
       WindowSpecDefinition('a.int :: Nil, Nil, frame),

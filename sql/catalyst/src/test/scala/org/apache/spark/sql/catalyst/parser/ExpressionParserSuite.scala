@@ -216,12 +216,12 @@ class ExpressionParserSuite extends PlanTest {
     def windowed(
         partitioning: Seq[Expression] = Seq.empty,
         ordering: Seq[SortOrder] = Seq.empty,
-        frame: WindowFrame = UnspecifiedFrame): Expression = {
-      WindowExpression(func, WindowSpecDefinition(partitioning, ordering, frame))
+        frame: WindowFrame = null): Expression = {
+      WindowExpression(func, WindowSpecDefinition(partitioning, ordering, Option(frame)))
     }
 
     // Basic window testing.
-    assertEqual("foo(*) over w1", UnresolvedWindowExpression(func, WindowSpecReference("w1")))
+    assertEqual("foo(*) over w1", WindowExpression(func, WindowSpecReference("w1")))
     assertEqual("foo(*) over ()", windowed())
     assertEqual("foo(*) over (partition by a, b)", windowed(Seq('a, 'b)))
     assertEqual("foo(*) over (distribute by a, b)", windowed(Seq('a, 'b)))
@@ -235,32 +235,32 @@ class ExpressionParserSuite extends PlanTest {
     assertEqual(
       "sum(product + 1) over (partition by ((product) + (1)) order by 2)",
       WindowExpression('sum.function('product + 1),
-        WindowSpecDefinition(Seq('product + 1), Seq(Literal(2).asc), UnspecifiedFrame)))
+        WindowSpecDefinition(Seq('product + 1), Seq(Literal(2).asc), None)))
     assertEqual(
       "sum(product + 1) over (partition by ((product / 2) + 1) order by 2)",
       WindowExpression('sum.function('product + 1),
-        WindowSpecDefinition(Seq('product / 2 + 1), Seq(Literal(2).asc), UnspecifiedFrame)))
+        WindowSpecDefinition(Seq('product / 2 + 1), Seq(Literal(2).asc), None)))
 
     // Range/Row
     val frameTypes = Seq(("rows", RowFrame), ("range", RangeFrame))
     val boundaries = Seq(
-      ("10 preceding", ValuePreceding(10), CurrentRow),
-      ("3 + 1 following", ValueFollowing(4), CurrentRow), // Will fail during analysis
-      ("unbounded preceding", UnboundedPreceding, CurrentRow),
-      ("unbounded following", UnboundedFollowing, CurrentRow), // Will fail during analysis
-      ("between unbounded preceding and current row", UnboundedPreceding, CurrentRow),
+      ("10 preceding", -Literal(10), CurrentRow),
+      ("3 + 1 following", Literal(4), CurrentRow), // Will fail during analysis
+      ("unbounded preceding", Unbounded, CurrentRow),
+      ("unbounded following", Unbounded, CurrentRow), // Will fail during analysis
+      ("between unbounded preceding and current row", Unbounded, CurrentRow),
       ("between unbounded preceding and unbounded following",
-        UnboundedPreceding, UnboundedFollowing),
-      ("between 10 preceding and current row", ValuePreceding(10), CurrentRow),
-      ("between current row and 5 following", CurrentRow, ValueFollowing(5)),
-      ("between 10 preceding and 5 following", ValuePreceding(10), ValueFollowing(5))
+        Unbounded, Unbounded),
+      ("between 10 preceding and current row", Literal(10), CurrentRow),
+      ("between current row and 5 following", CurrentRow, Literal(5)),
+      ("between 10 preceding and 5 following", Literal(10), Literal(5))
     )
     frameTypes.foreach {
       case (frameTypeSql, frameType) =>
         boundaries.foreach {
           case (boundarySql, begin, end) =>
             val query = s"foo(*) over (partition by a order by b $frameTypeSql $boundarySql)"
-            val expr = windowed(Seq('a), Seq('b.asc), SpecifiedWindowFrame(frameType, begin, end))
+            val expr = windowed(Seq('a), Seq('b.asc), WindowFrame(frameType, begin, end))
             assertEqual(query, expr)
         }
     }

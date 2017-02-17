@@ -17,17 +17,16 @@
 
 package org.apache.spark.sql.execution.window
 
-import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate._
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{CalendarIntervalType, DateType, IntegerType, TimestampType}
 import org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter
 
 /**
@@ -111,46 +110,54 @@ case class WindowExec(
    *
    * This method uses Code Generation. It can only be used on the executor side.
    *
-   * @param frameType to evaluate. This can either be Row or Range based.
-   * @param offset with respect to the row.
+   * @param frame to evaluate. This can either be a Row or Range frame.
+   * @param bound with respect to the row.
    * @return a bound ordering object.
    */
-  private[this] def createBoundOrdering(frameType: FrameType, offset: Int): BoundOrdering = {
-    frameType match {
-      case RangeFrame =>
-        val (exprs, current, bound) = if (offset == 0) {
-          // Use the entire order expression when the offset is 0.
-          val exprs = orderSpec.map(_.child)
-          val buildProjection = () => newMutableProjection(exprs, child.output)
-          (orderSpec, buildProjection(), buildProjection())
-        } else if (orderSpec.size == 1) {
-          // Use only the first order expression when the offset is non-null.
-          val sortExpr = orderSpec.head
-          val expr = sortExpr.child
-          // Create the projection which returns the current 'value'.
-          val current = newMutableProjection(expr :: Nil, child.output)
-          // Flip the sign of the offset when processing the order is descending
-          val boundOffset = sortExpr.direction match {
-            case Descending => -offset
-            case Ascending => offset
-          }
-          // Create the projection which returns the current 'value' modified by adding the offset.
-          val boundExpr = Add(expr, Cast(Literal.create(boundOffset, IntegerType), expr.dataType))
-          val bound = newMutableProjection(boundExpr :: Nil, child.output)
-          (sortExpr :: Nil, current, bound)
-        } else {
-          sys.error("Non-Zero range offsets are not supported for windows " +
-            "with multiple order expressions.")
+  private[this] def createBoundOrdering(frame: FrameType, bound: AnyRef): BoundOrdering = {
+    (frame, bound) match {
+      case (RowFrame, CurrentRow) =>
+        RowBoundOrdering(0)
+
+      case (RowFrame, IntegerLiteral(offset)) =>
+        RowBoundOrdering(offset)
+
+      case (RangeFrame, CurrentRow) =>
+        val ordering = newOrdering(orderSpec, child.output)
+        RangeBoundOrdering(ordering, IdentityProjection, IdentityProjection)
+
+      case (RangeFrame, offset: Expression) if orderSpec.size == 1 =>
+        // Use only the first order expression when the offset is non-null.
+        val sortExpr = orderSpec.head
+        val expr = sortExpr.child
+
+        // Create the projection which returns the current 'value'.
+        val current = newMutableProjection(expr :: Nil, child.output)
+
+        // Flip the sign of the offset when processing the order is descending
+        val boundOffset = sortExpr.direction match {
+          case Descending => UnaryMinus(offset)
+          case Ascending => offset
         }
+
+        // Create the projection which returns the current 'value' modified by adding the offset.
+        val boundExpr = (expr.dataType, boundOffset.dataType) match {
+          case (DateType, IntegerType) => DateAdd(expr, boundOffset)
+          case (TimestampType, CalendarIntervalType) => TimeAdd(expr, boundOffset)
+          case (a, b) if a == b => Add(expr, boundOffset)
+        }
+        val bound = newMutableProjection(boundExpr :: Nil, child.output)
+
         // Construct the ordering. This is used to compare the result of current value projection
         // to the result of bound value projection. This is done manually because we want to use
         // Code Generation (if it is enabled).
-        val sortExprs = exprs.zipWithIndex.map { case (e, i) =>
-          SortOrder(BoundReference(i, e.dataType, e.nullable), e.direction)
-        }
-        val ordering = newOrdering(sortExprs, Nil)
+        val boundSortExprs = sortExpr.copy(BoundReference(0, expr.dataType, expr.nullable)) :: Nil
+        val ordering = newOrdering(boundSortExprs, Nil)
         RangeBoundOrdering(ordering, current, bound)
-      case RowFrame => RowBoundOrdering(offset)
+
+      case (RangeFrame, _) =>
+        sys.error("Non-Zero range offsets are not supported for windows " +
+          "with multiple order expressions.")
     }
   }
 
@@ -159,40 +166,34 @@ case class WindowExec(
    * WindowExpressions and factory function for the WindowFrameFunction.
    */
   private[this] lazy val windowFrameExpressionFactoryPairs = {
-    type FrameKey = (String, FrameType, Option[Int], Option[Int])
-    type ExpressionBuffer = mutable.Buffer[Expression]
-    val framedFunctions = mutable.Map.empty[FrameKey, (ExpressionBuffer, ExpressionBuffer)]
+    val exprs = windowExpression.flatMap(_.collect {
+      case e: WindowExpression => e
+    })
 
-    // Add a function and its function to the map for a given frame.
-    def collect(tpe: String, fr: SpecifiedWindowFrame, e: Expression, fn: Expression): Unit = {
-      val key = (tpe, fr.frameType, FrameBoundary(fr.frameStart), FrameBoundary(fr.frameEnd))
-      val (es, fns) = framedFunctions.getOrElseUpdate(
-        key, (ArrayBuffer.empty[Expression], ArrayBuffer.empty[Expression]))
-      es += e
-      fns += fn
-    }
-
-    // Collect all valid window functions and group them by their frame.
-    windowExpression.foreach { x =>
-      x.foreach {
-        case e @ WindowExpression(function, spec) =>
-          val frame = spec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
-          function match {
-            case AggregateExpression(f, _, _, _) => collect("AGGREGATE", frame, e, f)
-            case f: AggregateWindowFunction => collect("AGGREGATE", frame, e, f)
-            case f: OffsetWindowFunction => collect("OFFSET", frame, e, f)
-            case f => sys.error(s"Unsupported window function: $f")
-          }
-        case _ =>
+    // Group the window expressions by their frames.
+    val framedFunctions = exprs.groupBy { e =>
+      (e.windowFunction, e.windowSpec.frameSpecification) match {
+        case (_: AggregateExpression | _: AggregateWindowFunction, Some(frame)) =>
+          ("AGGREGATE", frame.frameType, frame.lower, frame.upper)
+        case ( _: OffsetWindowFunction, Some(frame)) if frame.isOffset =>
+          ("OFFSET", frame.frameType, frame.lower, frame.upper)
+        case _ => sys.error(s"Unsupported window expression: $e")
       }
     }
 
     // Map the groups to a (unbound) expression and frame factory pair.
     var numExpressions = 0
     framedFunctions.toSeq.map {
-      case (key, (expressions, functionSeq)) =>
+      case (key, expressions) =>
         val ordinal = numExpressions
-        val functions = functionSeq.toArray
+
+        // Unwrap aggregate expressions.
+        val functions = expressions.toArray.map { e =>
+          e.windowFunction match {
+            case ae: AggregateExpression => ae.aggregateFunction
+            case wf => wf
+          }
+        }
 
         // Construct an aggregate processor if we need one.
         def processor = AggregateProcessor(
@@ -205,7 +206,7 @@ case class WindowExec(
         // Create the factory
         val factory = key match {
           // Offset Frame
-          case ("OFFSET", RowFrame, Some(offset), Some(h)) if offset == h =>
+          case ("OFFSET", _, IntegerLiteral(offset), _) =>
             target: InternalRow =>
               new OffsetWindowFunctionFrame(
                 target,
@@ -217,38 +218,38 @@ case class WindowExec(
                   newMutableProjection(expressions, schema, subexpressionEliminationEnabled),
                 offset)
 
+          // Entire Partition Frame.
+          case ("AGGREGATE", _, Unbounded, Unbounded) =>
+            target: InternalRow => {
+              new UnboundedWindowFunctionFrame(target, processor)
+            }
+
           // Growing Frame.
-          case ("AGGREGATE", frameType, None, Some(high)) =>
+          case ("AGGREGATE", frameType, Unbounded, upper) =>
             target: InternalRow => {
               new UnboundedPrecedingWindowFunctionFrame(
                 target,
                 processor,
-                createBoundOrdering(frameType, high))
+                createBoundOrdering(frameType, upper))
             }
 
           // Shrinking Frame.
-          case ("AGGREGATE", frameType, Some(low), None) =>
+          case ("AGGREGATE", frameType, lower, Unbounded) =>
             target: InternalRow => {
               new UnboundedFollowingWindowFunctionFrame(
                 target,
                 processor,
-                createBoundOrdering(frameType, low))
+                createBoundOrdering(frameType, lower))
             }
 
           // Moving Frame.
-          case ("AGGREGATE", frameType, Some(low), Some(high)) =>
+          case ("AGGREGATE", frameType, lower, upper) =>
             target: InternalRow => {
               new SlidingWindowFunctionFrame(
                 target,
                 processor,
-                createBoundOrdering(frameType, low),
-                createBoundOrdering(frameType, high))
-            }
-
-          // Entire Partition Frame.
-          case ("AGGREGATE", frameType, None, None) =>
-            target: InternalRow => {
-              new UnboundedWindowFunctionFrame(target, processor)
+                createBoundOrdering(frameType, lower),
+                createBoundOrdering(frameType, upper))
             }
         }
 
