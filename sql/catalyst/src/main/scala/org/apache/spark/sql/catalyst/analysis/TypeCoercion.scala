@@ -743,8 +743,7 @@ object TypeCoercion {
     }
 
     private def createBoundaryCast(boundary: AnyRef, dt: DataType): AnyRef = boundary match {
-      case e: Expression if e.dataType != dt && Cast.canCast(e.dataType, dt) =>
-        Cast(e, dt)
+      case e: Expression if e.dataType != dt && Cast.canCast(e.dataType, dt) => Cast(e, dt)
       case _ => boundary
     }
   }

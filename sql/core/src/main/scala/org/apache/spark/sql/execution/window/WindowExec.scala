@@ -143,7 +143,7 @@ case class WindowExec(
         // Create the projection which returns the current 'value' modified by adding the offset.
         val boundExpr = (expr.dataType, boundOffset.dataType) match {
           case (DateType, IntegerType) => DateAdd(expr, boundOffset)
-          case (TimestampType, CalendarIntervalType) => TimeAdd(expr, boundOffset)
+          case (TimestampType, CalendarIntervalType) => TimeAdd(expr, boundOffset, Option("GMT"))
           case (a, b) if a == b => Add(expr, boundOffset)
         }
         val bound = newMutableProjection(boundExpr :: Nil, child.output)

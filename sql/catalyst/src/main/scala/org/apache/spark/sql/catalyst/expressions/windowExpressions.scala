@@ -21,6 +21,7 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{TypeCheckFailure, TypeCheckSuccess}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{DeclarativeAggregate, NoOp}
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.CalendarInterval
 
 /**
  * The trait of the Window Specification (specified in the OVER clause or WINDOW clause) for
@@ -165,6 +166,7 @@ case class WindowFrame(
     upper: AnyRef)
   extends Expression
   with Unevaluable {
+  import WindowFrame._
 
   override lazy val children: Seq[Expression] = expr(lower).toSeq ++ expr(upper).toSeq
   override def dataType: DataType = throw new UnsupportedOperationException("dataType")
@@ -190,9 +192,12 @@ case class WindowFrame(
         TypeCheckFailure(
           s"Window frame bounds '$lower' and '$upper' do no not have the same data type: " +
             s"'${l.dataType.catalogString}' <> '${u.dataType.catalogString}'")
-      case (l: Expression, u: Expression) if !isLessThanOrEqual(l, u) =>
+      case (l: Expression, u: Expression) if isGreaterThan(l, u) =>
         TypeCheckFailure(
-          "The lower bound of a window frame must less than or equal to the upper bound")
+          "The lower bound of a window frame must be less than or equal to the upper bound")
+      case (Interval(mc1, mo1), Interval(mc2, mo2)) if mc1 > mc2 || mo1 > mo2 =>
+        TypeCheckFailure(
+          "The lower bound of a window frame must be less than or equal to the upper bound")
       case _ => TypeCheckSuccess
     }
   }
@@ -224,8 +229,8 @@ case class WindowFrame(
     case e: Expression => e.sql + " FOLLOWING"
   }
 
-  private def isLessThanOrEqual(l: Expression, r: Expression): Boolean = {
-    LessThanOrEqual(l, r).eval().asInstanceOf[Boolean]
+  private def isGreaterThan(l: Expression, u: Expression): Boolean = {
+    l.dataType != CalendarIntervalType && GreaterThan(l, u).eval().asInstanceOf[Boolean]
   }
 
   private def checkBoundary(b: AnyRef, location: String): TypeCheckResult = b match {
@@ -237,8 +242,12 @@ case class WindowFrame(
         s"Window frame $location bound '$e' is not a literal.")
     case e: Expression if !frameType.inputType.acceptsType(e.dataType) =>
       TypeCheckFailure(
-        s"The data type of the $location bound '${e.dataType} does not match " +
-        s"the expected data type '${frameType.inputType}'.")
+        s"The data type of the $location bound '${e.dataType} does " +
+        s"not match the expected data type '${frameType.inputType}'.")
+    case Interval(micros, months) if micros != 0 && months != 0 =>
+      TypeCheckFailure(
+        s"Window frame $location bound '$b' is a complex interval, " +
+        s"only microsecond or month based intervals are supported.")
     case _ =>
       TypeCheckSuccess
   }
@@ -263,6 +272,17 @@ object WindowFrame {
       // Otherwise, the default frame is
       // ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING.
       WindowFrame(RowFrame, Unbounded, Unbounded)
+    }
+  }
+
+  object Interval {
+    def unapply(e: Expression): Option[(Long, Long)] = {
+      if (e.foldable && e.dataType == CalendarIntervalType) {
+        val interval = e.eval().asInstanceOf[CalendarInterval]
+        Some(interval.microseconds, interval.months)
+      } else {
+        None
+      }
     }
   }
 }
