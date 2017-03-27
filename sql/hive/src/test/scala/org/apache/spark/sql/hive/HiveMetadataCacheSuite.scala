@@ -63,7 +63,7 @@ class HiveMetadataCacheSuite extends QueryTest with SQLTestUtils with TestHiveSi
 
   def testCaching(pruningEnabled: Boolean): Unit = {
     test(s"partitioned table is cached when partition pruning is $pruningEnabled") {
-      withSQLConf(SQLConf.HIVE_FILESOURCE_PARTITION_PRUNING.key -> pruningEnabled.toString) {
+      withSQLConf(SQLConf.HIVE_MANAGE_FILESOURCE_PARTITIONS.key -> pruningEnabled.toString) {
         withTable("test") {
           withTempDir { dir =>
             spark.range(5).selectExpr("id", "id as f1", "id as f2").write
@@ -75,7 +75,7 @@ class HiveMetadataCacheSuite extends QueryTest with SQLTestUtils with TestHiveSi
               |create external table test (id long)
               |partitioned by (f1 int, f2 int)
               |stored as parquet
-              |location "${dir.getAbsolutePath}"""".stripMargin)
+              |location "${dir.toURI}"""".stripMargin)
             spark.sql("msck repair table test")
 
             val df = spark.sql("select * from test")

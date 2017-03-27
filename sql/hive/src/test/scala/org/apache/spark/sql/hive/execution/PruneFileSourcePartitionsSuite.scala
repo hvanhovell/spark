@@ -22,7 +22,7 @@ import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
-import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation, PruneFileSourcePartitions, TableFileCatalog}
+import org.apache.spark.sql.execution.datasources.{CatalogFileIndex, HadoopFsRelation, LogicalRelation, PruneFileSourcePartitions}
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.hive.test.TestHiveSingleton
 import org.apache.spark.sql.test.SQLTestUtils
@@ -42,16 +42,16 @@ class PruneFileSourcePartitionsSuite extends QueryTest with SQLTestUtils with Te
             |CREATE EXTERNAL TABLE test(i int)
             |PARTITIONED BY (p int)
             |STORED AS parquet
-            |LOCATION '${dir.getAbsolutePath}'""".stripMargin)
+            |LOCATION '${dir.toURI}'""".stripMargin)
 
         val tableMeta = spark.sharedState.externalCatalog.getTable("default", "test")
-        val tableFileCatalog = new TableFileCatalog(spark, tableMeta, 0)
+        val catalogFileIndex = new CatalogFileIndex(spark, tableMeta, 0)
 
         val dataSchema = StructType(tableMeta.schema.filterNot { f =>
           tableMeta.partitionColumnNames.contains(f.name)
         })
         val relation = HadoopFsRelation(
-          location = tableFileCatalog,
+          location = catalogFileIndex,
           partitionSchema = tableMeta.partitionSchema,
           dataSchema = dataSchema,
           bucketSpec = None,

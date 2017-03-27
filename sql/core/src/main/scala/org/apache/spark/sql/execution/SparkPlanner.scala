@@ -36,7 +36,6 @@ class SparkPlanner(
       extraStrategies ++ (
       FileSourceStrategy ::
       DataSourceStrategy ::
-      DDLStrategy ::
       BarrierStrategy ::
       SpecialLimits ::
       Aggregation ::
