@@ -20,7 +20,7 @@ package org.apache.spark.sql
 import scala.annotation.implicitNotFound
 import scala.reflect.ClassTag
 
-import org.apache.spark.sql.types._
+import org.apache.spark.sql.types.StructType
 
 /**
  * Used to convert a JVM object of type `T` to and from the internal Spark SQL representation.
