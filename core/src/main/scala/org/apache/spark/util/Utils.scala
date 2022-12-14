@@ -71,7 +71,6 @@ import org.apache.spark.internal.config.Tests.IS_TESTING
 import org.apache.spark.internal.config.UI._
 import org.apache.spark.internal.config.Worker._
 import org.apache.spark.launcher.SparkLauncher
-import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, Serializer, SerializerInstance}
 import org.apache.spark.status.api.v1.{StackTrace, ThreadStackTrace}
 import org.apache.spark.util.collection.{Utils => CUtils}
@@ -99,7 +98,7 @@ private[spark] object Utils extends Logging {
    * Define a default value for driver memory here since this value is referenced across the code
    * base and nearly all files already use Utils.scala
    */
-  val DEFAULT_DRIVER_MEM_MB = JavaUtils.DEFAULT_DRIVER_MEM_MB.toInt
+  val DEFAULT_DRIVER_MEM_MB = org.apache.spark.network.util.JavaUtils.DEFAULT_DRIVER_MEM_MB.toInt
 
   val MAX_DIR_CREATION_ATTEMPTS: Int = 10
   @volatile private var localRootDirs: Array[String] = null

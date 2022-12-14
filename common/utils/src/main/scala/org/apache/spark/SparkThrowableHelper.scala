@@ -17,12 +17,17 @@
 
 package org.apache.spark
 
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
+
 import scala.collection.JavaConverters._
 
+import com.fasterxml.jackson.core.{JsonEncoding, JsonGenerator}
 import com.fasterxml.jackson.core.util.MinimalPrettyPrinter
+import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 
-import org.apache.spark.util.JsonProtocol.toJsonString
-import org.apache.spark.util.Utils
+import org.apache.spark.util.CommonUtils
 
 private[spark] object ErrorMessageFormat extends Enumeration {
   val PRETTY, MINIMAL, STANDARD = Value
@@ -33,8 +38,11 @@ private[spark] object ErrorMessageFormat extends Enumeration {
  * construct error messages.
  */
 private[spark] object SparkThrowableHelper {
+  private val mapper = new ObjectMapper().registerModule(DefaultScalaModule)
+    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+
   val errorReader = new ErrorClassesJsonReader(
-    Seq(Utils.getSparkClassLoader.getResource("error/error-classes.json")))
+    Seq(CommonUtils.getSparkClassLoader.getResource("error/error-classes.json")))
 
   def getMessage(
       errorClass: String,
@@ -132,5 +140,14 @@ private[spark] object SparkThrowableHelper {
       g.writeEndObject()
       g.writeEndObject()
     }
+  }
+
+  private def toJsonString(block: JsonGenerator => Unit): String = {
+    val baos = new ByteArrayOutputStream()
+    val generator = mapper.createGenerator(baos, JsonEncoding.UTF8)
+    block(generator)
+    generator.close()
+    baos.close()
+    new String(baos.toByteArray, StandardCharsets.UTF_8)
   }
 }

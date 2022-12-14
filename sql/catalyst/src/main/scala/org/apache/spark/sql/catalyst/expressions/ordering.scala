@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
+import org.apache.spark.sql.catalyst.types.{PhysicalArrayType, PhysicalAtomicType, PhysicalDataType, PhysicalStructType}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
 
@@ -36,10 +37,22 @@ class BaseOrdering extends Ordering[InternalRow] {
 /**
  * An interpreted row ordering comparator.
  */
-class InterpretedOrdering(ordering: Seq[SortOrder]) extends BaseOrdering {
-
+class InterpretedOrdering(private[this] val ordering: IndexedSeq[SortOrder]) extends BaseOrdering {
   def this(ordering: Seq[SortOrder], inputSchema: Seq[Attribute]) =
-    this(bindReferences(ordering, inputSchema))
+    this(bindReferences(ordering, inputSchema).toIndexedSeq)
+
+  def this(ordering: Seq[SortOrder]) = this(ordering.toIndexedSeq)
+
+  private[this] val comparators = ordering.map { o =>
+    PhysicalDataType(o.dataType) match {
+      case dt: PhysicalAtomicType => dt.ordering.asInstanceOf[Ordering[Any]]
+      case dt: PhysicalArrayType => dt.interpretedOrdering.asInstanceOf[Ordering[Any]]
+      case dt: PhysicalStructType => dt.interpretedOrdering.asInstanceOf[Ordering[Any]]
+      case _ => throw QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(o.dataType)
+    }
+  }
+
+
 
   override def compare(a: InternalRow, b: InternalRow): Int = {
     var i = 0
@@ -56,22 +69,7 @@ class InterpretedOrdering(ordering: Seq[SortOrder]) extends BaseOrdering {
       } else if (right == null) {
         return if (order.nullOrdering == NullsFirst) 1 else -1
       } else {
-        val comparison = order.dataType match {
-          case dt: AtomicType if order.direction == Ascending =>
-            dt.ordering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case dt: AtomicType if order.direction == Descending =>
-            - dt.ordering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case a: ArrayType if order.direction == Ascending =>
-            a.interpretedOrdering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case a: ArrayType if order.direction == Descending =>
-            - a.interpretedOrdering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case s: StructType if order.direction == Ascending =>
-            s.interpretedOrdering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case s: StructType if order.direction == Descending =>
-            - s.interpretedOrdering.asInstanceOf[Ordering[Any]].compare(left, right)
-          case other =>
-            throw QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(other)
-        }
+        val comparison = comparators(i).compare(left, right)
         if (comparison != 0) {
           return comparison
         }

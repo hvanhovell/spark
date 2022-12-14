@@ -85,7 +85,7 @@ import org.apache.spark.sql.types._
  * - [[ComplexTypeMergingExpression]]: to resolve output types of the complex expressions
  *                                     (e.g., [[CaseWhen]]).
  */
-abstract class Expression extends TreeNode[Expression] {
+abstract class Expression extends TreeNode[Expression] with HasDataType {
 
   /**
    * Returns true when an expression is a candidate for static evaluation before the query is

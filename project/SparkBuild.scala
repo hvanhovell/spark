@@ -56,10 +56,10 @@ object BuildCommons {
   val connect = ProjectRef(buildLocation, "connect")
 
   val allProjects@Seq(
-    core, graphx, mllib, mllibLocal, repl, networkCommon, networkShuffle, launcher, unsafe, tags, sketch, kvstore, _*
+    core, graphx, mllib, mllibLocal, repl, networkCommon, networkShuffle, launcher, unsafe, tags, sketch, kvstore, utils, _*
   ) = Seq(
     "core", "graphx", "mllib", "mllib-local", "repl", "network-common", "network-shuffle", "launcher", "unsafe",
-    "tags", "sketch", "kvstore"
+    "tags", "sketch", "kvstore", "utils"
   ).map(ProjectRef(buildLocation, _)) ++ sqlProjects ++ streamingProjects ++ Seq(connectCommon, connect)
 
   val optionallyEnabledProjects@Seq(kubernetes, mesos, yarn,
@@ -435,8 +435,8 @@ object SparkBuild extends PomBuild {
   /* Enable unidoc only for the root spark project */
   enable(Unidoc.settings)(spark)
 
-  /* Catalyst ANTLR generation settings */
-  enable(Catalyst.settings)(catalyst)
+  /* SQL API ANTLR generation settings */
+  enable(SQLApi.settings)(api)
 
   /* Spark SQL Core console settings */
   enable(SQL.settings)(sql)
@@ -1033,13 +1033,13 @@ object OldDeps {
   )
 }
 
-object Catalyst {
+object SQLApi {
   import com.simplytyped.Antlr4Plugin
   import com.simplytyped.Antlr4Plugin.autoImport._
 
   lazy val settings = Antlr4Plugin.projectSettings ++ Seq(
     (Antlr4 / antlr4Version) := SbtPomKeys.effectivePom.value.getProperties.get("antlr4.version").asInstanceOf[String],
-    (Antlr4 / antlr4PackageName) := Some("org.apache.spark.sql.catalyst.parser"),
+    (Antlr4 / antlr4PackageName) := Some("org.apache.spark.sql.parser.antlr"),
     (Antlr4 / antlr4GenListener) := true,
     (Antlr4 / antlr4GenVisitor) := true,
     (Antlr4 / antlr4TreatWarningsAsErrors) := true

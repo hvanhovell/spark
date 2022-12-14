@@ -21,10 +21,8 @@ import org.json4s.JsonAST.JValue
 import org.json4s.JsonDSL._
 
 import org.apache.spark.annotation.Stable
-import org.apache.spark.sql.catalyst.util.{escapeSingleQuotedString, quoteIfNeeded}
-import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns._
-import org.apache.spark.sql.catalyst.util.StringUtils.StringConcat
-import org.apache.spark.sql.util.SchemaUtils
+import org.apache.spark.sql.internal.StringUtils
+import org.apache.spark.util.StringConcat
 
 /**
  * A field inside a StructType.
@@ -42,6 +40,7 @@ case class StructField(
     dataType: DataType,
     nullable: Boolean = true,
     metadata: Metadata = Metadata.empty) {
+  import StructField._
 
   /** No-arg constructor for kryo. */
   protected def this() = this(null, null)
@@ -51,7 +50,7 @@ case class StructField(
       stringConcat: StringConcat,
       maxDepth: Int): Unit = {
     if (maxDepth > 0) {
-      stringConcat.append(s"$prefix-- ${SchemaUtils.escapeMetaCharacters(name)}: " +
+      stringConcat.append(s"$prefix-- ${StringUtils.escapeMetaCharacters(name)}: " +
         s"${dataType.typeName} (nullable = $nullable)\n")
       DataType.buildFormattedString(dataType, s"$prefix    |", stringConcat, maxDepth)
     }
@@ -141,7 +140,7 @@ case class StructField(
   }
 
   private def getDDLComment = getComment()
-    .map(escapeSingleQuotedString)
+    .map(StringUtils.escapeSingleQuotedString)
     .map(" COMMENT '" + _ + "'")
     .getOrElse("")
 
@@ -149,7 +148,7 @@ case class StructField(
    * Returns a string containing a schema in SQL format. For example the following value:
    * `StructField("eventId", IntegerType)` will be converted to `eventId`: INT.
    */
-  private[sql] def sql = s"${quoteIfNeeded(name)}: ${dataType.sql}$getDDLComment"
+  private[sql] def sql = s"${StringUtils.quoteIfNeeded(name)}: ${dataType.sql}$getDDLComment"
 
   /**
    * Returns a string containing a schema in DDL format. For example, the following value:
@@ -159,6 +158,32 @@ case class StructField(
    */
   def toDDL: String = {
     val nullString = if (nullable) "" else " NOT NULL"
-    s"${quoteIfNeeded(name)} ${dataType.sql}${nullString}$getDDLComment"
+    s"${StringUtils.quoteIfNeeded(name)} ${dataType.sql}${nullString}$getDDLComment"
   }
+}
+
+object StructField {
+  // This column metadata indicates the default value associated with a particular table column that
+  // is in effect at any given time. Its value begins at the time of the initial CREATE/REPLACE
+  // TABLE statement with DEFAULT column definition(s), if any. It then changes whenever an ALTER
+  // TABLE statement SETs the DEFAULT. The intent is for this "current default" to be used by
+  // UPDATE, INSERT and MERGE, which evaluate each default expression for each row.
+  val CURRENT_DEFAULT_COLUMN_METADATA_KEY = "CURRENT_DEFAULT"
+
+  // This column metadata represents the default value for all existing rows in a table after a
+  // column has been added. This value is determined at time of CREATE TABLE, REPLACE TABLE, or
+  // ALTER TABLE ADD COLUMN, and never changes thereafter. The intent is for this "exist default" to
+  // be used by any scan when the columns in the source row are missing data. For example, consider
+  // the following sequence:
+  // CREATE TABLE t (c1 INT)
+  // INSERT INTO t VALUES (42)
+  // ALTER TABLE t ADD COLUMNS (c2 INT DEFAULT 43)
+  // SELECT c1, c2 FROM t
+  // In this case, the final query is expected to return 42, 43. The ALTER TABLE ADD COLUMNS command
+  // executed after there was already data in the table, so in order to enforce this invariant, we
+  // need either (1) an expensive backfill of value 43 at column c2 into all previous rows, or (2)
+  // indicate to each data source that selected columns missing data are to generate the
+  // corresponding DEFAULT value instead. We choose option (2) for efficiency, and represent this
+  // value as the text representation of a folded constant in the "EXISTS_DEFAULT" column metadata.
+  val EXISTS_DEFAULT_COLUMN_METADATA_KEY = "EXISTS_DEFAULT"
 }

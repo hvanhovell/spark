@@ -124,6 +124,7 @@ package object util extends Logging {
     case p: PythonUDF => PrettyPythonUDF(p.name, p.dataType, p.children)
   }
 
+  // TODO
   def quoteIdentifier(name: String): String = {
     // Escapes back-ticks within the identifier name with double-back-ticks, and then quote the
     // identifier with back-ticks.

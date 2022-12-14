@@ -19,7 +19,7 @@ package org.apache.spark
 
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file.{Files, Path}
 
 import com.fasterxml.jackson.annotation.JsonInclude.Include
 import com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION
@@ -31,12 +31,12 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.commons.io.{FileUtils, IOUtils}
 
 import org.apache.spark.SparkThrowableHelper._
-import org.apache.spark.util.Utils
+import org.apache.spark.util.CommonUtils
 
 /**
  * Test suite for Spark Throwables.
  */
-class SparkThrowableSuite extends SparkFunSuite {
+class SparkThrowableSuite extends BaseSparkFunSuite {
 
   /* Used to regenerate the error class file. Run:
    {{{
@@ -101,7 +101,7 @@ class SparkThrowableSuite extends SparkFunSuite {
 
   test("SQLSTATE invariants") {
     val sqlStates = errorReader.errorInfoMap.values.toSeq.flatMap(_.sqlState)
-    val errorClassReadMe = Utils.getSparkClassLoader.getResource("error/README.md")
+    val errorClassReadMe = CommonUtils.getSparkClassLoader.getResource("error/README.md")
     val errorClassReadMeContents =
       IOUtils.toString(errorClassReadMe.openStream(), StandardCharsets.UTF_8)
     val sqlStateTableRegex =

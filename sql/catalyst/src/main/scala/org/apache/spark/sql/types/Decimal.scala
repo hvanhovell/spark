@@ -17,14 +17,17 @@
 
 package org.apache.spark.sql.types
 
-import java.math.{BigDecimal => JavaBigDecimal, BigInteger, MathContext, RoundingMode}
+import java.math.{BigInteger, MathContext, RoundingMode, BigDecimal => JavaBigDecimal}
 
+import scala.math.min
 import scala.util.Try
 
 import org.apache.spark.annotation.Unstable
+import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.catalyst.trees.SQLQueryContext
-import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DecimalType.{MAX_PRECISION, MAX_SCALE, MINIMUM_ADJUSTED_SCALE}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -92,7 +95,7 @@ final class Decimal extends Ordered[Decimal] with Serializable {
    * and return it, or return null if it cannot be set due to overflow.
    */
   def setOrNull(unscaled: Long, precision: Int, scale: Int): Decimal = {
-    DecimalType.checkNegativeScale(scale)
+    DecimalTypeUtils.checkNegativeScale(scale)
     if (unscaled <= -POW_10(MAX_LONG_DIGITS) || unscaled >= POW_10(MAX_LONG_DIGITS)) {
       // We can't represent this compactly as a long without risking overflow
       if (precision < 19) {
@@ -117,7 +120,7 @@ final class Decimal extends Ordered[Decimal] with Serializable {
    * Set this Decimal to the given BigDecimal value, with a given precision and scale.
    */
   def set(decimal: BigDecimal, precision: Int, scale: Int): Decimal = {
-    DecimalType.checkNegativeScale(scale)
+    DecimalTypeUtils.checkNegativeScale(scale)
     this.decimalVal = decimal.setScale(scale, ROUND_HALF_UP)
     if (decimalVal.precision > precision) {
       throw QueryExecutionErrors.decimalPrecisionExceedsMaxPrecisionError(
@@ -366,7 +369,7 @@ final class Decimal extends Ordered[Decimal] with Serializable {
     if (precision == this.precision && scale == this.scale) {
       return true
     }
-    DecimalType.checkNegativeScale(scale)
+    DecimalTypeUtils.checkNegativeScale(scale)
     var lv = longVal
     var dv = decimalVal
     // First, update our lv if we can, or transfer over to using a BigDecimal
@@ -508,12 +511,12 @@ final class Decimal extends Ordered[Decimal] with Serializable {
   def abs: Decimal = if (this < Decimal.ZERO) this.unary_- else this
 
   def floor: Decimal = if (scale == 0) this else {
-    val newPrecision = DecimalType.bounded(precision - scale + 1, 0).precision
+    val newPrecision = DecimalTypeUtils.bounded(precision - scale + 1, 0).precision
     toPrecision(newPrecision, 0, ROUND_FLOOR, nullOnOverflow = false)
   }
 
   def ceil: Decimal = if (scale == 0) this else {
-    val newPrecision = DecimalType.bounded(precision - scale + 1, 0).precision
+    val newPrecision = DecimalTypeUtils.bounded(precision - scale + 1, 0).precision
     toPrecision(newPrecision, 0, ROUND_CEILING, nullOnOverflow = false)
   }
 }
@@ -624,7 +627,7 @@ object Decimal {
    * Creates a decimal from unscaled, precision and scale without checking the bounds.
    */
   def createUnsafe(unscaled: Long, precision: Int, scale: Int): Decimal = {
-    DecimalType.checkNegativeScale(scale)
+    DecimalTypeUtils.checkNegativeScale(scale)
     val dec = new Decimal()
     dec.longVal = unscaled
     dec._precision = precision
@@ -681,5 +684,81 @@ object Decimal {
   private[sql] object DecimalAsIfIntegral extends DecimalIsConflicted with Integral[Decimal] {
     override def quot(x: Decimal, y: Decimal): Decimal = x quot y
     override def rem(x: Decimal, y: Decimal): Decimal = x % y
+  }
+}
+
+object DecimalTypeUtils {
+  // The decimal types compatible with other numeric types
+  private[sql] val BooleanDecimal = DecimalType(1, 0)
+  private[sql] val ByteDecimal = DecimalType(3, 0)
+  private[sql] val ShortDecimal = DecimalType(5, 0)
+  private[sql] val IntDecimal = DecimalType(10, 0)
+  private[sql] val LongDecimal = DecimalType(20, 0)
+  private[sql] val FloatDecimal = DecimalType(14, 7)
+  private[sql] val DoubleDecimal = DecimalType(30, 15)
+  private[sql] val BigIntDecimal = DecimalType(38, 0)
+
+  private[sql] def forType(dataType: DataType): DecimalType = dataType match {
+    case ByteType => ByteDecimal
+    case ShortType => ShortDecimal
+    case IntegerType => IntDecimal
+    case LongType => LongDecimal
+    case FloatType => FloatDecimal
+    case DoubleType => DoubleDecimal
+  }
+
+  private[sql] def fromLiteral(literal: Literal): DecimalType = literal.value match {
+    case v: Short => fromDecimal(Decimal(BigDecimal(v)))
+    case v: Int => fromDecimal(Decimal(BigDecimal(v)))
+    case v: Long => fromDecimal(Decimal(BigDecimal(v)))
+    case _ => forType(literal.dataType)
+  }
+
+  private[sql] def fromDecimal(d: Decimal): DecimalType = DecimalType(d.precision, d.scale)
+
+  private[sql] def bounded(precision: Int, scale: Int): DecimalType = {
+    DecimalType(min(precision, MAX_PRECISION), min(scale, MAX_SCALE))
+  }
+
+  private[sql] def checkNegativeScale(scale: Int): Unit = {
+    if (scale < 0 && !SQLConf.get.allowNegativeScaleOfDecimalEnabled) {
+      throw QueryCompilationErrors.negativeScaleNotAllowedError(scale)
+    }
+  }
+
+  /**
+   * Scale adjustment implementation is based on Hive's one, which is itself inspired to
+   * SQLServer's one. In particular, when a result precision is greater than
+   * {@link #MAX_PRECISION}, the corresponding scale is reduced to prevent the integral part of a
+   * result from being truncated.
+   *
+   * This method is used only when `spark.sql.decimalOperations.allowPrecisionLoss` is set to true.
+   */
+  private[sql] def adjustPrecisionScale(precision: Int, scale: Int): DecimalType = {
+    // Assumptions:
+    checkNegativeScale(scale)
+    assert(precision >= scale)
+
+    if (precision <= MAX_PRECISION) {
+      // Adjustment only needed when we exceed max precision
+      DecimalType(precision, scale)
+    } else if (scale < 0) {
+      // Decimal can have negative scale (SPARK-24468). In this case, we cannot allow a precision
+      // loss since we would cause a loss of digits in the integer part.
+      // In this case, we are likely to meet an overflow.
+      DecimalType(MAX_PRECISION, scale)
+    } else {
+      // Precision/scale exceed maximum precision. Result must be adjusted to MAX_PRECISION.
+      val intDigits = precision - scale
+      // If original scale is less than MINIMUM_ADJUSTED_SCALE, use original scale value; otherwise
+      // preserve at least MINIMUM_ADJUSTED_SCALE fractional digits
+      val minScaleValue = Math.min(scale, MINIMUM_ADJUSTED_SCALE)
+      // The resulting scale is the maximum between what is available without causing a loss of
+      // digits for the integer part of the decimal and the minimum guaranteed scale, which is
+      // computed above
+      val adjustedScale = Math.max(MAX_PRECISION - intDigits, minScaleValue)
+
+      DecimalType(MAX_PRECISION, adjustedScale)
+    }
   }
 }

@@ -20,13 +20,10 @@ package org.apache.spark.sql.types
 import java.util.Locale
 
 import scala.annotation.tailrec
-import scala.reflect.runtime.universe.typeTag
 
 import org.apache.spark.annotation.Stable
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
-import org.apache.spark.sql.catalyst.types.{PhysicalDataType, PhysicalDecimalType}
-import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.errors.SqlApiErrors
+import org.apache.spark.sql.internal.SqlApiConfigs
 
 /**
  * The data type representing `java.math.BigDecimal` values.
@@ -47,26 +44,17 @@ case class DecimalType(precision: Int, scale: Int) extends FractionalType {
   DecimalType.checkNegativeScale(scale)
 
   if (scale > precision) {
-    throw QueryCompilationErrors.decimalCannotGreaterThanPrecisionError(scale, precision)
+    throw SqlApiErrors.decimalCannotGreaterThanPrecisionError(scale, precision)
   }
 
   if (precision > DecimalType.MAX_PRECISION) {
-    throw QueryCompilationErrors.decimalOnlySupportPrecisionUptoError(
+    throw SqlApiErrors.decimalOnlySupportPrecisionUptoError(
       DecimalType.simpleString, DecimalType.MAX_PRECISION)
   }
 
   // default constructor for Java
   def this(precision: Int) = this(precision, 0)
   def this() = this(10)
-
-  private[sql] type InternalType = Decimal
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = Decimal.DecimalIsFractional
-  private[sql] val fractional = Decimal.DecimalIsFractional
-  private[sql] val ordering = Decimal.DecimalIsFractional
-  private[sql] val asIntegral = Decimal.DecimalAsIfIntegral
-
-  override private[sql] def exactNumeric = DecimalExactNumeric
 
   override def typeName: String = s"decimal($precision,$scale)"
 
@@ -109,9 +97,7 @@ case class DecimalType(precision: Int, scale: Int) extends FractionalType {
    * The default size of a value of the DecimalType is 8 bytes when precision is at most 18,
    * and 16 bytes otherwise.
    */
-  override def defaultSize: Int = if (precision <= Decimal.MAX_LONG_DIGITS) 8 else 16
-
-  override def physicalDataType: PhysicalDataType = PhysicalDecimalType(precision, scale)
+  override def defaultSize: Int = if (precision <= DecimalType.MAX_LONG_DIGITS) 8 else 16
 
   override def simpleString: String = s"decimal($precision,$scale)"
 
@@ -127,6 +113,12 @@ case class DecimalType(precision: Int, scale: Int) extends FractionalType {
 @Stable
 object DecimalType extends AbstractDataType {
   import scala.math.min
+
+  /** Maximum number of decimal digits an Int can represent */
+  val MAX_INT_DIGITS = 9
+
+  /** Maximum number of decimal digits a Long can represent */
+  val MAX_LONG_DIGITS = 18
 
   val MAX_PRECISION = 38
   val MAX_SCALE = 38
@@ -154,22 +146,13 @@ object DecimalType extends AbstractDataType {
     case DoubleType => DoubleDecimal
   }
 
-  private[sql] def fromLiteral(literal: Literal): DecimalType = literal.value match {
-    case v: Short => fromDecimal(Decimal(BigDecimal(v)))
-    case v: Int => fromDecimal(Decimal(BigDecimal(v)))
-    case v: Long => fromDecimal(Decimal(BigDecimal(v)))
-    case _ => forType(literal.dataType)
-  }
-
-  private[sql] def fromDecimal(d: Decimal): DecimalType = DecimalType(d.precision, d.scale)
-
   private[sql] def bounded(precision: Int, scale: Int): DecimalType = {
     DecimalType(min(precision, MAX_PRECISION), min(scale, MAX_SCALE))
   }
 
   private[sql] def checkNegativeScale(scale: Int): Unit = {
-    if (scale < 0 && !SQLConf.get.allowNegativeScaleOfDecimalEnabled) {
-      throw QueryCompilationErrors.negativeScaleNotAllowedError(scale)
+    if (scale < 0 && !SqlApiConfigs.allowNegativeScaleOfDecimalEnabled) {
+      throw SqlApiErrors.negativeScaleNotAllowedError(scale)
     }
   }
 
@@ -222,7 +205,7 @@ object DecimalType extends AbstractDataType {
   }
 
   private[sql] object Expression {
-    def unapply(e: Expression): Option[(Int, Int)] = e.dataType match {
+    def unapply(e: HasDataType): Option[(Int, Int)] = e.dataType match {
       case t: DecimalType => Some((t.precision, t.scale))
       case _ => None
     }
@@ -234,7 +217,7 @@ object DecimalType extends AbstractDataType {
   def is32BitDecimalType(dt: DataType): Boolean = {
     dt match {
       case t: DecimalType =>
-        t.precision <= Decimal.MAX_INT_DIGITS
+        t.precision <= MAX_INT_DIGITS
       case _ => false
     }
   }
@@ -245,7 +228,7 @@ object DecimalType extends AbstractDataType {
   def is64BitDecimalType(dt: DataType): Boolean = {
     dt match {
       case t: DecimalType =>
-        t.precision <= Decimal.MAX_LONG_DIGITS
+        t.precision <= MAX_LONG_DIGITS
       case _ => false
     }
   }
@@ -256,12 +239,12 @@ object DecimalType extends AbstractDataType {
   def isByteArrayDecimalType(dt: DataType): Boolean = {
     dt match {
       case t: DecimalType =>
-        t.precision > Decimal.MAX_LONG_DIGITS
+        t.precision > MAX_LONG_DIGITS
       case _ => false
     }
   }
 
   def unapply(t: DataType): Boolean = t.isInstanceOf[DecimalType]
 
-  def unapply(e: Expression): Boolean = e.dataType.isInstanceOf[DecimalType]
+  def unapply(e: HasDataType): Boolean = e.dataType.isInstanceOf[DecimalType]
 }

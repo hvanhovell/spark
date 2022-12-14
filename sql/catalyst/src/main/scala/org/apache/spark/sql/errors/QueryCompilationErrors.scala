@@ -988,6 +988,7 @@ private[sql] object QueryCompilationErrors extends QueryErrorsBase {
       messageParameters = Map("key" -> key, "details" -> details))
   }
 
+  // TODO remove me?
   def schemaFailToParseError(schema: String, e: Throwable): Throwable = {
     new AnalysisException(
       errorClass = "INVALID_SCHEMA.PARSE_ERROR",
@@ -2191,34 +2192,7 @@ private[sql] object QueryCompilationErrors extends QueryErrorsBase {
       messageParameters = Map("resourceType" -> resourceType))
   }
 
-  def invalidDayTimeField(field: Byte): Throwable = {
-    val supportedIds = DayTimeIntervalType.dayTimeFields
-      .map(i => s"$i (${DayTimeIntervalType.fieldToString(i)})")
-    new AnalysisException(
-      errorClass = "_LEGACY_ERROR_TEMP_1223",
-      messageParameters = Map(
-        "field" -> field.toString,
-        "supportedIds" -> supportedIds.mkString(", ")))
-  }
-
-  def invalidDayTimeIntervalType(startFieldName: String, endFieldName: String): Throwable = {
-    new AnalysisException(
-      errorClass = "_LEGACY_ERROR_TEMP_1224",
-      messageParameters = Map(
-        "startFieldName" -> startFieldName,
-        "endFieldName" -> endFieldName))
-  }
-
-  def invalidYearMonthField(field: Byte): Throwable = {
-    val supportedIds = YearMonthIntervalType.yearMonthFields
-      .map(i => s"$i (${YearMonthIntervalType.fieldToString(i)})")
-    new AnalysisException(
-      errorClass = "_LEGACY_ERROR_TEMP_1225",
-      messageParameters = Map(
-        "field" -> field.toString,
-        "supportedIds" -> supportedIds.mkString(", ")))
-  }
-
+  // TODO remove me
   def configRemovedInVersionError(
       configName: String,
       version: String,
@@ -2230,7 +2204,7 @@ private[sql] object QueryCompilationErrors extends QueryErrorsBase {
         "version" -> version,
         "comment" -> comment))
   }
-
+  // TODO remove me
   def decimalCannotGreaterThanPrecisionError(scale: Int, precision: Int): Throwable = {
     new AnalysisException(
       errorClass = "_LEGACY_ERROR_TEMP_1228",
@@ -2238,7 +2212,7 @@ private[sql] object QueryCompilationErrors extends QueryErrorsBase {
         "scale" -> scale.toString,
         "precision" -> precision.toString))
   }
-
+  // TODO remove me
   def decimalOnlySupportPrecisionUptoError(decimalType: String, precision: Int): Throwable = {
     new AnalysisException(
       errorClass = "_LEGACY_ERROR_TEMP_1229",
@@ -2246,7 +2220,7 @@ private[sql] object QueryCompilationErrors extends QueryErrorsBase {
         "decimalType" -> decimalType,
         "precision" -> precision.toString))
   }
-
+  // TODO remove me
   def negativeScaleNotAllowedError(scale: Int): Throwable = {
     new AnalysisException(
       errorClass = "_LEGACY_ERROR_TEMP_1230",

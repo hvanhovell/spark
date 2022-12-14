@@ -19,16 +19,17 @@ package org.apache.spark.sql.errors
 
 import org.antlr.v4.runtime.ParserRuleContext
 
-import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
-import org.apache.spark.sql.catalyst.trees.Origin
+import org.apache.spark.sql.internal.Origin
+import org.apache.spark.sql.parser.ParseException
+import org.apache.spark.sql.parser.antlr.SqlBaseParser._
 import org.apache.spark.sql.types.StringType
 
 /**
  * Object for grouping all error messages of the query parsing.
  * Currently it includes all ParseException.
  */
-private[sql] object QueryParsingErrors extends QueryErrorsBase {
+private[sql] object QueryParsingErrors {
+  import QueryErrorUtils._
 
   def invalidInsertIntoError(ctx: InsertIntoContext): Throwable = {
     new ParseException(errorClass = "_LEGACY_ERROR_TEMP_0001", ctx)

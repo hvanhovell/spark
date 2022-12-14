@@ -15,16 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst.util
+package org.apache.spark.sql.types
 
 import com.fasterxml.jackson.core.{JsonGenerator, JsonParser}
 import com.fasterxml.jackson.databind.{DeserializationContext, JsonDeserializer, JsonSerializer, SerializerProvider}
 import org.json4s.JsonAST.JValue
 import org.json4s.jackson.{JValueDeserializer, JValueSerializer}
 
-import org.apache.spark.sql.types.DataType
-
-object DataTypeJsonUtils {
+private[types] object DataTypeJsonUtils {
   /**
    * Jackson serializer for [[DataType]]. Internally this delegates to json4s based serialization.
    */

@@ -14,21 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.catalyst.parser
+package org.apache.spark.sql.parser
 
 import java.lang.{Long => JLong}
 import java.nio.CharBuffer
 import java.util
 
-import scala.collection.mutable.StringBuilder
-
 import org.antlr.v4.runtime.{ParserRuleContext, Token}
 import org.antlr.v4.runtime.misc.Interval
 import org.antlr.v4.runtime.tree.TerminalNode
 
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.catalyst.trees.{CurrentOrigin, Origin}
 import org.apache.spark.sql.errors.QueryParsingErrors
+import org.apache.spark.sql.internal.{CurrentOrigin, Origin}
 
 /**
  * A collection of utility methods for use during the parsing process.
@@ -232,31 +229,4 @@ object ParserUtils {
 
   /** the column name pattern in quoted regex with qualifier */
   val qualifiedEscapedIdentifier = ("((?s).+)" + """.""" + "`((?s).+)`").r
-
-  /** Some syntactic sugar which makes it easier to work with optional clauses for LogicalPlans. */
-  implicit class EnhancedLogicalPlan(val plan: LogicalPlan) extends AnyVal {
-    /**
-     * Create a plan using the block of code when the given context exists. Otherwise return the
-     * original plan.
-     */
-    def optional(ctx: AnyRef)(f: => LogicalPlan): LogicalPlan = {
-      if (ctx != null) {
-        f
-      } else {
-        plan
-      }
-    }
-
-    /**
-     * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
-     * passed function. The original plan is returned when the context does not exist.
-     */
-    def optionalMap[C](ctx: C)(f: (C, LogicalPlan) => LogicalPlan): LogicalPlan = {
-      if (ctx != null) {
-        f(ctx, plan)
-      } else {
-        plan
-      }
-    }
-  }
 }

@@ -41,6 +41,12 @@
       <artifactId>scala-library</artifactId>
     </dependency>
 
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-utils_${scala.binary.version}</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
     <!-- Core dependencies -->
     <!-- Netty Begin -->
     <dependency>

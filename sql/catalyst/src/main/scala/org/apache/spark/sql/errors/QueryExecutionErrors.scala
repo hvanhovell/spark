@@ -59,7 +59,11 @@ import org.apache.spark.util.CircularBuffer
  * This does not include exceptions thrown during the eager execution of commands, which are
  * grouped into [[QueryCompilationErrors]].
  */
-private[sql] object QueryExecutionErrors extends QueryErrorsBase {
+private[sql] object QueryExecutionErrors
+  extends QueryErrorsBase
+  with GenericErrors
+  // TODO figure out if we need to add this at all
+  with DataTypeErrors {
 
   def cannotEvaluateExpressionError(expression: Expression): Throwable = {
     SparkException.internalError(s"Cannot evaluate expression: $expression")
@@ -1286,18 +1290,6 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase {
       summary = "")
   }
 
-  def unsupportedArrayTypeError(clazz: Class[_]): SparkRuntimeException = {
-    new SparkRuntimeException(
-      errorClass = "_LEGACY_ERROR_TEMP_2120",
-      messageParameters = Map("clazz" -> clazz.toString()))
-  }
-
-  def unsupportedJavaTypeError(clazz: Class[_]): SparkRuntimeException = {
-    new SparkRuntimeException(
-      errorClass = "_LEGACY_ERROR_TEMP_2121",
-      messageParameters = Map("clazz" -> clazz.toString()))
-  }
-
   def failedParsingStructTypeError(raw: String): SparkRuntimeException = {
     new SparkRuntimeException(
       errorClass = "_LEGACY_ERROR_TEMP_2122",
@@ -2165,10 +2157,6 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase {
       cause = null)
   }
 
-  def noSuchElementExceptionError(key: String): Throwable = {
-    new NoSuchElementException(key)
-  }
-
   def cannotMutateReadOnlySQLConfError(): SparkUnsupportedOperationException = {
     new SparkUnsupportedOperationException(
       errorClass = "_LEGACY_ERROR_TEMP_2222",
@@ -2188,37 +2176,6 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase {
       cause = null)
   }
 
-  def unsupportedOperationExceptionError(): SparkUnsupportedOperationException = {
-    new SparkUnsupportedOperationException(
-      errorClass = "_LEGACY_ERROR_TEMP_2225",
-      messageParameters = Map.empty)
-  }
-
-  def nullLiteralsCannotBeCastedError(name: String): SparkUnsupportedOperationException = {
-    new SparkUnsupportedOperationException(
-      errorClass = "_LEGACY_ERROR_TEMP_2226",
-      messageParameters = Map(
-        "name" -> name))
-  }
-
-  def notUserDefinedTypeError(name: String, userClass: String): Throwable = {
-    new SparkException(
-      errorClass = "_LEGACY_ERROR_TEMP_2227",
-      messageParameters = Map(
-        "name" -> name,
-        "userClass" -> userClass),
-      cause = null)
-  }
-
-  def cannotLoadUserDefinedTypeError(name: String, userClass: String): Throwable = {
-    new SparkException(
-      errorClass = "_LEGACY_ERROR_TEMP_2228",
-      messageParameters = Map(
-        "name" -> name,
-        "userClass" -> userClass),
-      cause = null)
-  }
-
   def notPublicClassError(name: String): SparkUnsupportedOperationException = {
     new SparkUnsupportedOperationException(
       errorClass = "_LEGACY_ERROR_TEMP_2229",
@@ -2230,20 +2187,6 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase {
     new SparkUnsupportedOperationException(
       errorClass = "_LEGACY_ERROR_TEMP_2230",
       messageParameters = Map.empty)
-  }
-
-  def fieldIndexOnRowWithoutSchemaError(): SparkUnsupportedOperationException = {
-    new SparkUnsupportedOperationException(
-      errorClass = "_LEGACY_ERROR_TEMP_2231",
-      messageParameters = Map.empty)
-  }
-
-  def valueIsNullError(index: Int): Throwable = {
-    new SparkException(
-      errorClass = "_LEGACY_ERROR_TEMP_2232",
-      messageParameters = Map(
-        "index" -> toSQLValue(index, IntegerType)),
-      cause = null)
   }
 
   def onlySupportDataSourcesProvidingFileFormatError(providingClass: String): Throwable = {

@@ -20,7 +20,6 @@ import org.antlr.v4.runtime._
 import org.antlr.v4.runtime.atn.PredictionMode
 import org.antlr.v4.runtime.misc.{Interval, ParseCancellationException}
 import org.antlr.v4.runtime.tree.TerminalNodeImpl
-
 import org.apache.spark.{QueryContext, SparkThrowableHelper}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.AnalysisException
@@ -30,6 +29,7 @@ import org.apache.spark.sql.catalyst.parser.ParserUtils.withOrigin
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.trees.{CurrentOrigin, Origin}
 import org.apache.spark.sql.errors.QueryParsingErrors
+import org.apache.spark.sql.internal.Origin
 import org.apache.spark.sql.types.{DataType, StructType}
 
 /**

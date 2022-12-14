@@ -21,8 +21,8 @@ import scala.collection.mutable
 
 import org.apache.spark.annotation.{DeveloperApi, Since}
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.errors.QueryExecutionErrors
-import org.apache.spark.util.Utils
+import org.apache.spark.sql.errors.SqlApiErrors
+import org.apache.spark.util.CommonUtils
 
 /**
  * This object keeps the mappings between user classes and their User Defined Types (UDTs).
@@ -73,15 +73,15 @@ object UDTRegistration extends Serializable with Logging {
    */
   def getUDTFor(userClass: String): Option[Class[_]] = {
     udtMap.get(userClass).map { udtClassName =>
-      if (Utils.classIsLoadable(udtClassName)) {
-        val udtClass = Utils.classForName(udtClassName)
+      if (CommonUtils.classIsLoadable(udtClassName)) {
+        val udtClass = CommonUtils.classForName(udtClassName)
         if (classOf[UserDefinedType[_]].isAssignableFrom(udtClass)) {
           udtClass
         } else {
-          throw QueryExecutionErrors.notUserDefinedTypeError(udtClass.getName, userClass)
+          throw SqlApiErrors.notUserDefinedTypeError(udtClass.getName, userClass)
         }
       } else {
-        throw QueryExecutionErrors.cannotLoadUserDefinedTypeError(udtClassName, userClass)
+        throw SqlApiErrors.cannotLoadUserDefinedTypeError(udtClassName, userClass)
       }
     }
   }

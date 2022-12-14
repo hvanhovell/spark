@@ -22,11 +22,11 @@ import org.apache.logging.log4j.core.{Filter, Logger}
 import org.apache.logging.log4j.core.impl.Log4jLogEvent.Builder
 import org.apache.logging.log4j.message.SimpleMessage
 
-import org.apache.spark.SparkFunSuite
+import org.apache.spark.BaseSparkFunSuite
 import org.apache.spark.internal.Logging.SparkShellLoggingFilter
-import org.apache.spark.util.Utils
+import org.apache.spark.util.CommonUtils
 
-class LoggingSuite extends SparkFunSuite {
+class LoggingSuite extends BaseSparkFunSuite {
 
   test("spark-shell logging filter") {
     val ssf = new SparkShellLoggingFilter()
@@ -63,7 +63,7 @@ class LoggingSuite extends SparkFunSuite {
         .asInstanceOf[Logger]
       val logEvent4 = new Builder().setLevel(Level.INFO)
         .setLoggerName(logger2.getName()).setMessage(new SimpleMessage("Test")).build()
-      Utils.setLogLevel(Level.INFO)
+      CommonUtils.setLogLevel(Level.INFO)
       assert(ssf.filter(logEvent4) != Filter.Result.DENY)
     } finally {
       rootLogger.setLevel(originalLevel)

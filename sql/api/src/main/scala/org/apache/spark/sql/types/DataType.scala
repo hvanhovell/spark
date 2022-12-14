@@ -29,26 +29,19 @@ import org.json4s.jackson.JsonMethods._
 
 import org.apache.spark.SparkThrowable
 import org.apache.spark.annotation.Stable
-import org.apache.spark.sql.catalyst.analysis.Resolver
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression}
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.types._
-import org.apache.spark.sql.catalyst.util.DataTypeJsonUtils.{DataTypeJsonDeserializer, DataTypeJsonSerializer}
-import org.apache.spark.sql.catalyst.util.StringUtils.StringConcat
-import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy
-import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy.{ANSI, STRICT}
+import org.apache.spark.sql.errors.SqlApiErrors
+import org.apache.spark.sql.internal.SqlApiConfigs
+import org.apache.spark.sql.parser.DataTypeParser
+import org.apache.spark.sql.types.DataTypeJsonUtils.{DataTypeJsonDeserializer, DataTypeJsonSerializer}
 import org.apache.spark.sql.types.DayTimeIntervalType._
 import org.apache.spark.sql.types.YearMonthIntervalType._
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{CommonUtils, StringConcat}
 
 /**
  * The base type of all Spark SQL data types.
  *
  * @since 1.3.0
  */
-
 @Stable
 @JsonSerialize(using = classOf[DataTypeJsonSerializer])
 @JsonDeserialize(using = classOf[DataTypeJsonDeserializer])
@@ -60,7 +53,7 @@ abstract class DataType extends AbstractDataType {
    *     ...
    * }}}
    */
-  private[sql] def unapply(e: Expression): Boolean = e.dataType == this
+  private[sql] def unapply(e: HasDataType): Boolean = e.dataType == this
 
   /**
    * The default size of a value of this data type, used internally for size estimation.
@@ -98,7 +91,7 @@ abstract class DataType extends AbstractDataType {
    * (`StructField.nullable`, `ArrayType.containsNull`, and `MapType.valueContainsNull`).
    */
   private[spark] def sameType(other: DataType): Boolean =
-    if (SQLConf.get.caseSensitiveAnalysis) {
+    if (SqlApiConfigs.caseSensitive) {
       DataType.equalsIgnoreNullability(this, other)
     } else {
       DataType.equalsIgnoreCaseAndNullability(this, other)
@@ -118,8 +111,6 @@ abstract class DataType extends AbstractDataType {
   override private[sql] def defaultConcreteType: DataType = this
 
   override private[sql] def acceptsType(other: DataType): Boolean = sameType(other)
-
-  def physicalDataType: PhysicalDataType = UninitializedPhysicalType
 }
 
 
@@ -136,8 +127,8 @@ object DataType {
   def fromDDL(ddl: String): DataType = {
     parseTypeWithFallback(
       ddl,
-      CatalystSqlParser.parseDataType,
-      fallbackParser = str => CatalystSqlParser.parseTableSchema(str))
+      DataTypeParser.parseDataType,
+      fallbackParser = str => DataTypeParser.parseTableSchema(str))
   }
 
   /**
@@ -165,7 +156,7 @@ object DataType {
             if (e.isInstanceOf[SparkThrowable]) {
               throw e
             }
-            throw QueryCompilationErrors.schemaFailToParseError(schema, e)
+            throw SqlApiErrors.schemaFailToParseError(schema, e)
         }
     }
   }
@@ -244,7 +235,7 @@ object DataType {
     ("pyClass", _),
     ("sqlType", _),
     ("type", JString("udt"))) =>
-      Utils.classForName[UserDefinedType[_]](udtClass).getConstructor().newInstance()
+      CommonUtils.classForName[UserDefinedType[_]](udtClass).getConstructor().newInstance()
 
     // Python UDT
     case JSortedObject(
@@ -438,7 +429,7 @@ object DataType {
   def equalsStructurallyByName(
       from: DataType,
       to: DataType,
-      resolver: Resolver): Boolean = {
+      resolver: (String, String) => Boolean): Boolean = {
     (from, to) match {
       case (left: ArrayType, right: ArrayType) =>
         equalsStructurallyByName(left.elementType, right.elementType, resolver)
@@ -457,139 +448,9 @@ object DataType {
       case _ => true
     }
   }
+}
 
-  private val SparkGeneratedName = """col\d+""".r
-  private def isSparkGeneratedName(name: String): Boolean = name match {
-    case SparkGeneratedName(_*) => true
-    case _ => false
-  }
 
-  /**
-   * Returns true if the write data type can be read using the read data type.
-   *
-   * The write type is compatible with the read type if:
-   * - Both types are arrays, the array element types are compatible, and element nullability is
-   *   compatible (read allows nulls or write does not contain nulls).
-   * - Both types are maps and the map key and value types are compatible, and value nullability
-   *   is compatible  (read allows nulls or write does not contain nulls).
-   * - Both types are structs and have the same number of fields. The type and nullability of each
-   *   field from read/write is compatible. If byName is true, the name of each field from
-   *   read/write needs to be the same.
-   * - Both types are atomic and the write type can be safely cast to the read type.
-   *
-   * Extra fields in write-side structs are not allowed to avoid accidentally writing data that
-   * the read schema will not read, and to ensure map key equality is not changed when data is read.
-   *
-   * @param write a write-side data type to validate against the read type
-   * @param read a read-side data type
-   * @return true if data written with the write type can be read using the read type
-   */
-  def canWrite(
-      write: DataType,
-      read: DataType,
-      byName: Boolean,
-      resolver: Resolver,
-      context: String,
-      storeAssignmentPolicy: StoreAssignmentPolicy.Value,
-      addError: String => Unit): Boolean = {
-    (write, read) match {
-      case (wArr: ArrayType, rArr: ArrayType) =>
-        // run compatibility check first to produce all error messages
-        val typesCompatible = canWrite(
-          wArr.elementType, rArr.elementType, byName, resolver, context + ".element",
-          storeAssignmentPolicy, addError)
-
-        if (wArr.containsNull && !rArr.containsNull) {
-          addError(s"Cannot write nullable elements to array of non-nulls: '$context'")
-          false
-        } else {
-          typesCompatible
-        }
-
-      case (wMap: MapType, rMap: MapType) =>
-        // map keys cannot include data fields not in the read schema without changing equality when
-        // read. map keys can be missing fields as long as they are nullable in the read schema.
-
-        // run compatibility check first to produce all error messages
-        val keyCompatible = canWrite(
-          wMap.keyType, rMap.keyType, byName, resolver, context + ".key",
-          storeAssignmentPolicy, addError)
-        val valueCompatible = canWrite(
-          wMap.valueType, rMap.valueType, byName, resolver, context + ".value",
-          storeAssignmentPolicy, addError)
-
-        if (wMap.valueContainsNull && !rMap.valueContainsNull) {
-          addError(s"Cannot write nullable values to map of non-nulls: '$context'")
-          false
-        } else {
-          keyCompatible && valueCompatible
-        }
-
-      case (StructType(writeFields), StructType(readFields)) =>
-        var fieldCompatible = true
-        readFields.zip(writeFields).zipWithIndex.foreach {
-          case ((rField, wField), i) =>
-            val nameMatch = resolver(wField.name, rField.name) || isSparkGeneratedName(wField.name)
-            val fieldContext = s"$context.${rField.name}"
-            val typesCompatible = canWrite(
-              wField.dataType, rField.dataType, byName, resolver, fieldContext,
-              storeAssignmentPolicy, addError)
-
-            if (byName && !nameMatch) {
-              addError(s"Struct '$context' $i-th field name does not match " +
-                s"(may be out of order): expected '${rField.name}', found '${wField.name}'")
-              fieldCompatible = false
-            } else if (!rField.nullable && wField.nullable) {
-              addError(s"Cannot write nullable values to non-null field: '$fieldContext'")
-              fieldCompatible = false
-            } else if (!typesCompatible) {
-              // errors are added in the recursive call to canWrite above
-              fieldCompatible = false
-            }
-        }
-
-        if (readFields.size > writeFields.size) {
-          val missingFieldsStr = readFields.takeRight(readFields.size - writeFields.size)
-            .map(f => s"'${f.name}'").mkString(", ")
-          if (missingFieldsStr.nonEmpty) {
-            addError(s"Struct '$context' missing fields: $missingFieldsStr")
-            fieldCompatible = false
-          }
-
-        } else if (writeFields.size > readFields.size) {
-          val extraFieldsStr = writeFields.takeRight(writeFields.size - readFields.size)
-            .map(f => s"'${f.name}'").mkString(", ")
-          addError(s"Cannot write extra fields to struct '$context': $extraFieldsStr")
-          fieldCompatible = false
-        }
-
-        fieldCompatible
-
-      case (w: AtomicType, r: AtomicType) if storeAssignmentPolicy == STRICT =>
-        if (!Cast.canUpCast(w, r)) {
-          addError(s"Cannot safely cast '$context': ${w.catalogString} to ${r.catalogString}")
-          false
-        } else {
-          true
-        }
-
-      case (_: NullType, _) if storeAssignmentPolicy == ANSI => true
-
-      case (w: AtomicType, r: AtomicType) if storeAssignmentPolicy == ANSI =>
-        if (!Cast.canANSIStoreAssign(w, r)) {
-          addError(s"Cannot safely cast '$context': ${w.catalogString} to ${r.catalogString}")
-          false
-        } else {
-          true
-        }
-
-      case (w, r) if w.sameType(r) && !w.isInstanceOf[NullType] =>
-        true
-
-      case (w, r) =>
-        addError(s"Cannot write '$context': " +
-          s"${w.catalogString} is incompatible with ${r.catalogString}")
-        false
-    }
-  }
+trait HasDataType {
+  def dataType: DataType
 }

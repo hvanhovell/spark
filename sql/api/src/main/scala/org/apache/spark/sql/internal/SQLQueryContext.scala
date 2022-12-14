@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.spark.sql.catalyst.trees
+package org.apache.spark.sql.internal
 
 import org.apache.spark.QueryContext
 
-/** The class represents error context of a SQL query. */
+/**
+ * The class represents error context of a SQL query.
+ */
 case class SQLQueryContext(
     line: Option[Int],
     startPosition: Option[Int],
@@ -29,10 +30,10 @@ case class SQLQueryContext(
     originObjectType: Option[String],
     originObjectName: Option[String]) extends QueryContext {
 
-  override val objectType = originObjectType.getOrElse("")
-  override val objectName = originObjectName.getOrElse("")
-  override val startIndex = originStartIndex.getOrElse(-1)
-  override val stopIndex = originStopIndex.getOrElse(-1)
+  override val objectType: String = originObjectType.getOrElse("")
+  override val objectName: String = originObjectName.getOrElse("")
+  override val startIndex: Int = originStartIndex.getOrElse(-1)
+  override val stopIndex: Int = originStopIndex.getOrElse(-1)
 
   /**
    * The SQL query context of current node. For example:
