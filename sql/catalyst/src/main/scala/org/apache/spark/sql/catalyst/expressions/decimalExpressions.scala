@@ -20,10 +20,10 @@ package org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodeGenerator, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.SQLQueryContext
+import org.apache.spark.sql.catalyst.types.PhysicalFractionalType
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.errors.QueryExecutionErrors
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, SQLQueryContext}
 import org.apache.spark.sql.types._
 
 /**
@@ -263,6 +263,10 @@ case class DecimalDivideWithOverflowCheck(
   override def initQueryContext(): Option[SQLQueryContext] = Option(context)
   def decimalMethod: String = "$div"
 
+  private val fractional: Fractional[Any] = {
+    PhysicalFractionalType(dataType).fractional.asInstanceOf[Fractional[Any]]
+  }
+
   override def eval(input: InternalRow): Any = {
     val value1 = left.eval(input)
     if (value1 == null) {
@@ -273,7 +277,7 @@ case class DecimalDivideWithOverflowCheck(
       }
     } else {
       val value2 = right.eval(input)
-      dataType.fractional.asInstanceOf[Fractional[Any]].div(value1, value2).asInstanceOf[Decimal]
+      fractional.div(value1, value2).asInstanceOf[Decimal]
         .toPrecision(dataType.precision, dataType.scale, Decimal.ROUND_HALF_UP, nullOnOverflow,
           getContextOrNull())
     }

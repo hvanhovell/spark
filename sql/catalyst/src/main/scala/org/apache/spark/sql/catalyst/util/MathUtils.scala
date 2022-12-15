@@ -17,8 +17,8 @@
 
 package org.apache.spark.sql.catalyst.util
 
-import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.internal.SQLQueryContext
 
 /**
  * Helper functions for arithmetic operations with overflow.

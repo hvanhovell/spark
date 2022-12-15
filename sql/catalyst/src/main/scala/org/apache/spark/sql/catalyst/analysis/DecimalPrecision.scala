@@ -201,11 +201,11 @@ object DecimalPrecision extends TypeCoercionRule {
         case (l: Literal, r) if r.dataType.isInstanceOf[DecimalType] &&
             l.dataType.isInstanceOf[IntegralType] &&
             literalPickMinimumPrecision =>
-          b.makeCopy(Array(Cast(l, DecimalType.fromLiteral(l)), r))
+          b.makeCopy(Array(Cast(l, DecimalTypeUtils.fromLiteral(l)), r))
         case (l, r: Literal) if l.dataType.isInstanceOf[DecimalType] &&
             r.dataType.isInstanceOf[IntegralType] &&
             literalPickMinimumPrecision =>
-          b.makeCopy(Array(l, Cast(r, DecimalType.fromLiteral(r))))
+          b.makeCopy(Array(l, Cast(r, DecimalTypeUtils.fromLiteral(r))))
         // Promote integers inside a binary expression with fixed-precision decimals to decimals,
         // and fixed-precision decimals in an expression with floats / doubles to doubles
         case (l @ IntegralType(), r @ DecimalType.Expression(_, _)) =>

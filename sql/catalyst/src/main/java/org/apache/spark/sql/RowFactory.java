@@ -18,7 +18,7 @@
 package org.apache.spark.sql;
 
 import org.apache.spark.annotation.Stable;
-import org.apache.spark.sql.catalyst.expressions.GenericRow;
+import org.apache.spark.sql.internal.GenericRow;
 
 /**
  * A factory class used to construct {@link Row} objects.

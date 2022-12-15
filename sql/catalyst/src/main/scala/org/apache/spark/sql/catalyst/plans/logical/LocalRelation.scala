@@ -23,23 +23,23 @@ import org.apache.spark.sql.catalyst.analysis
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.statsEstimation.EstimationUtils
 import org.apache.spark.sql.catalyst.trees.TreePattern.{LOCAL_RELATION, TreePattern}
-import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, StructField, StructType}
 
 object LocalRelation {
   def apply(output: Attribute*): LocalRelation = new LocalRelation(output)
 
   def apply(output1: StructField, output: StructField*): LocalRelation = {
-    new LocalRelation(StructType(output1 +: output).toAttributes)
+    new LocalRelation(DataTypeUtils.toAttributes(StructType(output1 +: output)))
   }
 
   def fromExternalRows(output: Seq[Attribute], data: Seq[Row]): LocalRelation = {
-    val schema = StructType.fromAttributes(output)
+    val schema = DataTypeUtils.fromAttributes(output)
     val converter = CatalystTypeConverters.createToCatalystConverter(schema)
     LocalRelation(output, data.map(converter(_).asInstanceOf[InternalRow]))
   }
 
   def fromProduct(output: Seq[Attribute], data: Seq[Product]): LocalRelation = {
-    val schema = StructType.fromAttributes(output)
+    val schema = DataTypeUtils.fromAttributes(output)
     val converter = CatalystTypeConverters.createToCatalystConverter(schema)
     LocalRelation(output, data.map(converter(_).asInstanceOf[InternalRow]))
   }

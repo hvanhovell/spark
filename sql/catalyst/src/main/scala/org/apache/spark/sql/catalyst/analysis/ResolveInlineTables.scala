@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.AliasHelper
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.AlwaysProcess
-import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, StructField, StructType}
 
 /**
  * An analyzer rule that replaces [[UnresolvedInlineTable]] with [[LocalRelation]].
@@ -99,8 +99,8 @@ object ResolveInlineTables extends Rule[LogicalPlan] with CastSupport with Alias
       }
       StructField(name, tpe, nullable = column.exists(_.nullable))
     }
-    val attributes = StructType(fields).toAttributes
     assert(fields.size == table.names.size)
+    val attributes = DataTypeUtils.toAttributes(StructType(fields))
 
     val newRows: Seq[InternalRow] = table.rows.map { row =>
       InternalRow.fromSeq(row.zipWithIndex.map { case (e, ci) =>

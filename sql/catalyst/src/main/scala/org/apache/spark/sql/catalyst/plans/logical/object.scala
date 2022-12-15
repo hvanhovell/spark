@@ -140,7 +140,7 @@ object MapPartitionsInR {
         packageNames,
         broadcastVars,
         encoder.schema,
-        schema.toAttributes,
+        DataTypeUtils.toAttributes(schema),
         child)
     } else {
       val deserialized = CatalystSerde.deserialize(child)(encoder)
@@ -195,7 +195,7 @@ case class MapPartitionsInRWithArrow(
   override lazy val references: AttributeSet = child.outputSet
 
   override protected def stringArgs: Iterator[Any] = Iterator(
-    inputSchema, StructType.fromAttributes(output), child)
+    inputSchema, DataTypeUtils.fromAttributes(output), child)
 
   override val producedAttributes = AttributeSet(output)
 
@@ -457,7 +457,7 @@ object FlatMapGroupsWithState {
       groupingAttributes,
       dataAttributes,
       UnresolvedDeserializer(encoderFor[K].deserializer, groupingAttributes),
-      LocalRelation(stateEncoder.schema.toAttributes), // empty data set
+      LocalRelation(DataTypeUtils.toAttributes(stateEncoder.schema)), // empty data set
       child
     )
     CatalystSerde.serialize[U](mapped)
@@ -570,7 +570,7 @@ object FlatMapGroupsInR {
         packageNames,
         broadcastVars,
         inputSchema,
-        schema.toAttributes,
+        DataTypeUtils.toAttributes(schema),
         UnresolvedDeserializer(keyDeserializer, groupingAttributes),
         groupingAttributes,
         child)
@@ -633,7 +633,7 @@ case class FlatMapGroupsInRWithArrow(
   override lazy val references: AttributeSet = child.outputSet
 
   override protected def stringArgs: Iterator[Any] = Iterator(
-    inputSchema, StructType.fromAttributes(output), keyDeserializer, groupingAttributes, child)
+    inputSchema, DataTypeUtils.fromAttributes(output), keyDeserializer, groupingAttributes, child)
 
   override val producedAttributes = AttributeSet(output)
 
@@ -651,7 +651,7 @@ object CoGroup {
       rightAttr: Seq[Attribute],
       left: LogicalPlan,
       right: LogicalPlan): LogicalPlan = {
-    require(StructType.fromAttributes(leftGroup) == StructType.fromAttributes(rightGroup))
+    require(DataTypeUtils.fromAttributes(leftGroup) == DataTypeUtils.fromAttributes(rightGroup))
 
     val cogrouped = CoGroup(
       func.asInstanceOf[(Any, Iterator[Any], Iterator[Any]) => TraversableOnce[Any]],

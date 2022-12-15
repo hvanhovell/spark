@@ -16,15 +16,15 @@
  */
 package org.apache.spark.sql.types
 
-import scala.collection.{Map, mutable}
+import scala.collection.{mutable, Map}
 import scala.util.Try
 import scala.util.control.NonFatal
+
 import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Cast}
 import org.apache.spark.sql.catalyst.parser.LegacyTypeStringParser
-import org.apache.spark.sql.catalyst.trees.Origin
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.Origin
 import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy
 import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy._
 

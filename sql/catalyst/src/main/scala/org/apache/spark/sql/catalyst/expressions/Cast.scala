@@ -27,15 +27,16 @@ import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion}
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.{SQLQueryContext, TreeNodeTag}
+import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.catalyst.trees.TreePattern._
+import org.apache.spark.sql.catalyst.types.{PhysicalFractionalType, PhysicalIntegralType, PhysicalNumericType}
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils._
 import org.apache.spark.sql.catalyst.util.IntervalStringStyles.ANSI_STYLE
 import org.apache.spark.sql.catalyst.util.IntervalUtils.{dayTimeIntervalToByte, dayTimeIntervalToDecimal, dayTimeIntervalToInt, dayTimeIntervalToLong, dayTimeIntervalToShort, yearMonthIntervalToByte, yearMonthIntervalToInt, yearMonthIntervalToShort}
 import org.apache.spark.sql.errors.{QueryErrorsBase, QueryExecutionErrors}
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, SQLQueryContext}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.UTF8StringBuilder
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
@@ -866,12 +867,13 @@ case class Cast(
     case _: DayTimeIntervalType => buildCast[Long](_, s =>
       IntervalUtils.durationToMicros(IntervalUtils.microsToDuration(s), it.endField))
     case x: IntegralType =>
+      val integral = PhysicalIntegralType(x).integral.asInstanceOf[Integral[Any]]
       if (x == LongType) {
         b => IntervalUtils.longToDayTimeInterval(
-          x.integral.asInstanceOf[Integral[Any]].toLong(b), it.startField, it.endField)
+          integral.toLong(b), it.startField, it.endField)
       } else {
         b => IntervalUtils.intToDayTimeInterval(
-          x.integral.asInstanceOf[Integral[Any]].toInt(b), it.startField, it.endField)
+          integral.toInt(b), it.startField, it.endField)
       }
     case DecimalType.Fixed(p, s) =>
       buildCast[Decimal](_, d =>
@@ -886,12 +888,13 @@ case class Cast(
     case _: YearMonthIntervalType => buildCast[Int](_, s =>
       IntervalUtils.periodToMonths(IntervalUtils.monthsToPeriod(s), it.endField))
     case x: IntegralType =>
+      val integral = PhysicalIntegralType(x).integral.asInstanceOf[Integral[Any]]
       if (x == LongType) {
         b => IntervalUtils.longToYearMonthInterval(
-          x.integral.asInstanceOf[Integral[Any]].toLong(b), it.startField, it.endField)
+          integral.toLong(b), it.startField, it.endField)
       } else {
         b => IntervalUtils.intToYearMonthInterval(
-          x.integral.asInstanceOf[Integral[Any]].toInt(b), it.startField, it.endField)
+          integral.toInt(b), it.startField, it.endField)
       }
     case DecimalType.Fixed(p, s) =>
       buildCast[Decimal](_, d =>
@@ -912,9 +915,11 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToLong(t))
     case x: NumericType if ansiEnabled =>
-      b => x.exactNumeric.asInstanceOf[Numeric[Any]].toLong(b)
+      val exactNumeric = PhysicalNumericType(x).exactNumeric.asInstanceOf[Numeric[Any]]
+      b => exactNumeric.toLong(b)
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toLong(b)
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toLong(b)
     case x: DayTimeIntervalType =>
       buildCast[Long](_, i => dayTimeIntervalToLong(i, x.startField, x.endField))
     case x: YearMonthIntervalType =>
@@ -944,9 +949,11 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToLong(t).toInt)
     case x: NumericType if ansiEnabled =>
-      b => x.exactNumeric.asInstanceOf[Numeric[Any]].toInt(b)
+      val exactNumeric = PhysicalNumericType(x).exactNumeric.asInstanceOf[Numeric[Any]]
+      b => exactNumeric.toInt(b)
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toInt(b)
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toInt(b)
     case x: DayTimeIntervalType =>
       buildCast[Long](_, i => dayTimeIntervalToInt(i, x.startField, x.endField))
     case x: YearMonthIntervalType =>
@@ -980,9 +987,10 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToLong(t).toShort)
     case x: NumericType if ansiEnabled =>
+      val exactNumeric = PhysicalNumericType(x).exactNumeric.asInstanceOf[Numeric[Any]]
       b =>
         val intValue = try {
-          x.exactNumeric.asInstanceOf[Numeric[Any]].toInt(b)
+          exactNumeric.toInt(b)
         } catch {
           case _: ArithmeticException =>
             throw QueryExecutionErrors.castingCauseOverflowError(b, from, ShortType)
@@ -993,7 +1001,8 @@ case class Cast(
           throw QueryExecutionErrors.castingCauseOverflowError(b, from, ShortType)
         }
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toInt(b).toShort
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toInt(b).toShort
     case x: DayTimeIntervalType =>
       buildCast[Long](_, i => dayTimeIntervalToShort(i, x.startField, x.endField))
     case x: YearMonthIntervalType =>
@@ -1027,9 +1036,10 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToLong(t).toByte)
     case x: NumericType if ansiEnabled =>
+      val exactNumeric = PhysicalNumericType(x).exactNumeric.asInstanceOf[Numeric[Any]]
       b =>
         val intValue = try {
-          x.exactNumeric.asInstanceOf[Numeric[Any]].toInt(b)
+          exactNumeric.toInt(b)
         } catch {
           case _: ArithmeticException =>
             throw QueryExecutionErrors.castingCauseOverflowError(b, from, ByteType)
@@ -1040,7 +1050,8 @@ case class Cast(
           throw QueryExecutionErrors.castingCauseOverflowError(b, from, ByteType)
         }
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toInt(b).toByte
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toInt(b).toByte
     case x: DayTimeIntervalType =>
       buildCast[Long](_, i => dayTimeIntervalToByte(i, x.startField, x.endField))
     case x: YearMonthIntervalType =>
@@ -1108,10 +1119,12 @@ case class Cast(
     case dt: DecimalType =>
       b => toPrecision(b.asInstanceOf[Decimal], target, getContextOrNull())
     case t: IntegralType =>
-      b => changePrecision(Decimal(t.integral.asInstanceOf[Integral[Any]].toLong(b)), target)
+      val integral = PhysicalIntegralType(t).integral.asInstanceOf[Integral[Any]]
+      b => changePrecision(Decimal(integral.toLong(b)), target)
     case x: FractionalType =>
+      val fractional = PhysicalFractionalType(x).fractional.asInstanceOf[Fractional[Any]]
       b => try {
-        changePrecision(Decimal(x.fractional.asInstanceOf[Fractional[Any]].toDouble(b)), target)
+        changePrecision(Decimal(fractional.toDouble(b)), target)
       } catch {
         case _: NumberFormatException => null
       }
@@ -1152,7 +1165,8 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToDouble(t))
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toDouble(b)
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toDouble(b)
   }
 
   // FloatConverter
@@ -1178,7 +1192,8 @@ case class Cast(
     case TimestampType =>
       buildCast[Long](_, t => timestampToDouble(t).toFloat)
     case x: NumericType =>
-      b => x.numeric.asInstanceOf[Numeric[Any]].toFloat(b)
+      val numeric = PhysicalNumericType(x).numeric.asInstanceOf[Numeric[Any]]
+      b => numeric.toFloat(b)
   }
 
   private[this] def castArray(fromType: DataType, toType: DataType): Any => Any = {

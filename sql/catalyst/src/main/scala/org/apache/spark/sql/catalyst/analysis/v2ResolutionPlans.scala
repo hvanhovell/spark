@@ -27,7 +27,7 @@ import org.apache.spark.sql.connector.catalog.{CatalogPlugin, FunctionCatalog, I
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.connector.catalog.TableChange.ColumnPosition
 import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
-import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DataTypeUtils, StructField, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
@@ -181,7 +181,7 @@ object ResolvedTable {
       identifier: Identifier,
       table: Table): ResolvedTable = {
     val schema = CharVarcharUtils.replaceCharVarcharWithStringInSchema(table.schema)
-    ResolvedTable(catalog, identifier, table, schema.toAttributes)
+    ResolvedTable(catalog, identifier, table, DataTypeUtils.toAttributes(schema))
   }
 }
 

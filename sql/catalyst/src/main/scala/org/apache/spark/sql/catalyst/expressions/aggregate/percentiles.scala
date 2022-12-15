@@ -19,12 +19,15 @@ package org.apache.spark.sql.catalyst.expressions.aggregate
 
 import java.util
 
+import scala.util.control.NonFatal
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{DataTypeMismatch, TypeCheckSuccess}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.trees.{BinaryLike, TernaryLike, UnaryLike}
+import org.apache.spark.sql.catalyst.types.OrderedPhysicalDataType
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
@@ -154,16 +157,15 @@ abstract class PercentileBase
       return Seq.empty
     }
 
-    val ordering = child.dataType match {
-      case numericType: NumericType => numericType.ordering
-      case intervalType: YearMonthIntervalType => intervalType.ordering
-      case intervalType: DayTimeIntervalType => intervalType.ordering
-      case otherType => QueryExecutionErrors.unsupportedTypeError(otherType)
+    val ordering = try {
+      OrderedPhysicalDataType(child.dataType).ordering.asInstanceOf[Ordering[AnyRef]]
+    } catch {
+      case NonFatal(_) => throw QueryExecutionErrors.unsupportedTypeError(child.dataType)
     }
     val sortedCounts = if (reverse) {
-      buffer.toSeq.sortBy(_._1)(ordering.asInstanceOf[Ordering[AnyRef]].reverse)
+      buffer.toSeq.sortBy(_._1)(ordering.reverse)
     } else {
-      buffer.toSeq.sortBy(_._1)(ordering.asInstanceOf[Ordering[AnyRef]])
+      buffer.toSeq.sortBy(_._1)(ordering)
     }
     val accumulatedCounts = sortedCounts.scanLeft((sortedCounts.head._1, 0L)) {
       case ((key1, count1), (key2, count2)) => (key2, count1 + count2)

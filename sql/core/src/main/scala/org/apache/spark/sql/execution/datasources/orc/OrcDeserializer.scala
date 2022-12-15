@@ -35,7 +35,19 @@ class OrcDeserializer(
     requiredSchema: StructType,
     requestedColIds: Array[Int]) {
 
-  private val resultRow = new SpecificInternalRow(requiredSchema.map(_.dataType))
+  private val resultRow = {
+    val row = new SpecificInternalRow(requiredSchema.map(_.dataType))
+    requiredSchema.zipWithIndex.foreach {
+      case (field, i) if requestedColIds(i) == -1 =>
+        val existenceDefaultValue = ResolveDefaultColumns.getExistenceDefaultValue(field)
+        row.update(i, existenceDefaultValue)
+      case _ =>
+    }
+    row
+  }
+
+  // TODO remove RowUpdater.
+  private val rowUpdater = new RowUpdater(resultRow)
 
   // `fieldWriters(index)` is
   // - null if the respective source column is missing, since the output value
@@ -50,13 +62,6 @@ class OrcDeserializer(
           // Create a RowUpdater instance for converting Orc objects to Catalyst rows. If any fields
           // in the Orc result schema have associated existence default values, maintain a
           // boolean array to track which fields have been explicitly assigned for each row.
-          val rowUpdater: RowUpdater =
-            if (requiredSchema.hasExistenceDefaultValues) {
-              resetExistenceDefaultsBitmask(requiredSchema)
-              new RowUpdaterWithBitmask(resultRow, requiredSchema.existenceDefaultsBitmask)
-            } else {
-              new RowUpdater(resultRow)
-            }
           val writer: (Int, WritableComparable[_]) => Unit =
             (ordinal, value) =>
               if (value == null) {
@@ -79,7 +84,6 @@ class OrcDeserializer(
       }
       targetColumnIndex += 1
     }
-    applyExistenceDefaultValuesToRow(requiredSchema, resultRow)
     resultRow
   }
 

@@ -17,12 +17,15 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import scala.util.control.NonFatal
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.catalyst.types.{PhysicalArrayType, PhysicalAtomicType, PhysicalDataType, PhysicalStructType}
+import org.apache.spark.sql.catalyst.types.OrderedPhysicalDataType
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
+
 
 
 /**
@@ -44,15 +47,13 @@ class InterpretedOrdering(private[this] val ordering: IndexedSeq[SortOrder]) ext
   def this(ordering: Seq[SortOrder]) = this(ordering.toIndexedSeq)
 
   private[this] val comparators = ordering.map { o =>
-    PhysicalDataType(o.dataType) match {
-      case dt: PhysicalAtomicType => dt.ordering.asInstanceOf[Ordering[Any]]
-      case dt: PhysicalArrayType => dt.interpretedOrdering.asInstanceOf[Ordering[Any]]
-      case dt: PhysicalStructType => dt.interpretedOrdering.asInstanceOf[Ordering[Any]]
-      case _ => throw QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(o.dataType)
+    try {
+      OrderedPhysicalDataType(o.dataType).ordering.asInstanceOf[Ordering[Any]]
+    } catch {
+      case NonFatal(_) =>
+        throw QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(o.dataType)
     }
   }
-
-
 
   override def compare(a: InternalRow, b: InternalRow): Int = {
     var i = 0

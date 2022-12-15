@@ -258,7 +258,7 @@ object RowEncoder {
     case _: YearMonthIntervalType => ObjectType(classOf[java.time.Period])
     case p: PythonUserDefinedType => externalDataTypeFor(p.sqlType)
     case udt: UserDefinedType[_] => ObjectType(udt.userClass)
-    case _ => dt.physicalDataType match {
+    case _ => PhysicalDataType(dt) match {
       case _: PhysicalArrayType => ObjectType(classOf[scala.collection.Seq[_]])
       case _: PhysicalDecimalType => ObjectType(classOf[java.math.BigDecimal])
       case _: PhysicalMapType => ObjectType(classOf[scala.collection.Map[_, _]])

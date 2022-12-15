@@ -26,7 +26,7 @@ import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy
-import org.apache.spark.sql.types.{ArrayType, DataType, DecimalType, IntegralType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, DataTypeUtils, DecimalType, IntegralType, MapType, StructType}
 
 object TableOutputResolver {
   def resolveOutputColumns(
@@ -147,7 +147,8 @@ object TableOutputResolver {
     val fields = inputType.zipWithIndex.map { case (f, i) =>
       Alias(GetStructField(input, i, Some(f.name)), f.name)()
     }
-    val reordered = reorderColumnsByName(fields, expectedType.toAttributes, conf, addError, colPath)
+    val expectedAttributes = DataTypeUtils.toAttributes(expectedType)
+    val reordered = reorderColumnsByName(fields, expectedAttributes, conf, addError, colPath)
     if (reordered.length == expectedType.length) {
       val struct = CreateStruct(reordered)
       val res = if (input.nullable) {
@@ -281,7 +282,7 @@ object TableOutputResolver {
 
       case StoreAssignmentPolicy.STRICT | StoreAssignmentPolicy.ANSI =>
         // run the type check first to ensure type errors are present
-        val canWrite = DataType.canWrite(
+        val canWrite = DataTypeUtils.canWrite(
           queryExpr.dataType, tableAttr.dataType, byName, conf.resolver, tableAttr.name,
           storeAssignmentPolicy, addError)
         if (queryExpr.nullable && !tableAttr.nullable) {

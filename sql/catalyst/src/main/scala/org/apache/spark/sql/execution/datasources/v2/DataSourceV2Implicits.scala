@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.util.METADATA_COL_ATTR_KEY
 import org.apache.spark.sql.connector.catalog.{MetadataColumn, SupportsAtomicPartitionManagement, SupportsDeleteV2, SupportsPartitionManagement, SupportsRead, SupportsWrite, Table, TableCapability, TruncatableTable}
 import org.apache.spark.sql.connector.write.RowLevelOperationTable
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.types.{MetadataBuilder, StructField, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, MetadataBuilder, StructField, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 object DataSourceV2Implicits {
@@ -107,7 +107,7 @@ object DataSourceV2Implicits {
       StructType(fields)
     }
 
-    def toAttributes: Seq[AttributeReference] = asStruct.toAttributes
+    def toAttributes: Seq[AttributeReference] = DataTypeUtils.toAttributes(asStruct)
   }
 
   implicit class OptionsHelper(options: Map[String, String]) {

@@ -87,7 +87,7 @@ case class HyperLogLogPlusPlus(
 
   override def dataType: DataType = LongType
 
-  override def aggBufferSchema: StructType = StructType.fromAttributes(aggBufferAttributes)
+  override def aggBufferSchema: StructType = DataTypeUtils.fromAttributes(aggBufferAttributes)
 
   override def defaultResult: Option[Literal] = Option(Literal.create(0L, dataType))
 

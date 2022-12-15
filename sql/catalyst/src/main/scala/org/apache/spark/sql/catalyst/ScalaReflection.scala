@@ -31,11 +31,11 @@ import org.apache.spark.sql.catalyst.SerializerBuildHelper._
 import org.apache.spark.sql.catalyst.analysis.GetColumnByOrdinal
 import org.apache.spark.sql.catalyst.expressions.{Expression, _}
 import org.apache.spark.sql.catalyst.expressions.objects._
+import org.apache.spark.sql.catalyst.types.{PhysicalDataType, TypedPhysicalDataType}
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
-
 
 /**
  * A helper trait to create [[org.apache.spark.sql.catalyst.encoders.ExpressionEncoder]]s
@@ -739,8 +739,7 @@ object ScalaReflection extends ScalaReflection {
 
   /** Returns a Sequence of attributes for the given case class type. */
   def attributesFor[T: TypeTag]: Seq[Attribute] = schemaFor[T] match {
-    case Schema(s: StructType, _) =>
-      s.toAttributes
+    case Schema(s: StructType, _) => DataTypeUtils.toAttributes(s)
     case others => throw QueryExecutionErrors.attributesForTypeUnsupportedError(others)
   }
 
@@ -882,21 +881,27 @@ object ScalaReflection extends ScalaReflection {
     }
   }
 
-  val typeJavaMapping = Map[DataType, Class[_]](
-    BooleanType -> classOf[Boolean],
-    ByteType -> classOf[Byte],
-    ShortType -> classOf[Short],
-    IntegerType -> classOf[Int],
-    LongType -> classOf[Long],
-    FloatType -> classOf[Float],
-    DoubleType -> classOf[Double],
-    StringType -> classOf[UTF8String],
-    DateType -> classOf[DateType.InternalType],
-    TimestampType -> classOf[TimestampType.InternalType],
-    TimestampNTZType -> classOf[TimestampNTZType.InternalType],
-    BinaryType -> classOf[BinaryType.InternalType],
-    CalendarIntervalType -> classOf[CalendarInterval]
-  )
+  val typeJavaMapping = {
+    def toDataTypeClassPair(dt: DataType): (DataType, Class[_]) = {
+      val pdt = PhysicalDataType(dt).asInstanceOf[TypedPhysicalDataType]
+      dt -> pdt.cls
+    }
+    Map[DataType, Class[_]](
+      toDataTypeClassPair(BooleanType),
+      toDataTypeClassPair(ByteType),
+      toDataTypeClassPair(ShortType),
+      toDataTypeClassPair(IntegerType),
+      toDataTypeClassPair(LongType),
+      toDataTypeClassPair(FloatType),
+      toDataTypeClassPair(DoubleType),
+      toDataTypeClassPair(StringType),
+      toDataTypeClassPair(DateType),
+      toDataTypeClassPair(TimestampType),
+      toDataTypeClassPair(TimestampNTZType),
+      toDataTypeClassPair(BinaryType),
+      toDataTypeClassPair(CalendarIntervalType)
+    )
+  }
 
   val typeBoxedJavaMapping = Map[DataType, Class[_]](
     BooleanType -> classOf[java.lang.Boolean],
@@ -914,8 +919,8 @@ object ScalaReflection extends ScalaReflection {
   def dataTypeJavaClass(dt: DataType): Class[_] = {
     dt match {
       case _: DecimalType => classOf[Decimal]
-      case it: DayTimeIntervalType => classOf[it.InternalType]
-      case it: YearMonthIntervalType => classOf[it.InternalType]
+      case _: DayTimeIntervalType => classOf[Long]
+      case _: YearMonthIntervalType => classOf[Int]
       case _: StructType => classOf[InternalRow]
       case _: ArrayType => classOf[ArrayData]
       case _: MapType => classOf[MapData]

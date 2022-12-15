@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.objects._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
 import org.apache.spark.sql.catalyst.trees.TreePattern._
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, UserDefinedType}
+import org.apache.spark.sql.types.{ArrayType, DataType, DataTypeUtils, MapType, StructType, UserDefinedType}
 
 /*
  * This file defines optimization rules related to object manipulation (for the Dataset API).
@@ -223,7 +223,7 @@ object ObjectSerializerPruning extends Rule[LogicalPlan] {
       if (conf.serializerNestedSchemaPruningEnabled && rootFields.nonEmpty) {
         // Prunes nested fields in serializers.
         val prunedSchema = SchemaPruning.pruneSchema(
-          StructType.fromAttributes(prunedSerializer.map(_.toAttribute)), rootFields)
+          DataTypeUtils.fromAttributes(prunedSerializer.map(_.toAttribute)), rootFields)
         val nestedPrunedSerializer = prunedSerializer.zipWithIndex.map { case (serializer, idx) =>
           pruneSerializer(serializer, prunedSchema(idx).dataType)
         }

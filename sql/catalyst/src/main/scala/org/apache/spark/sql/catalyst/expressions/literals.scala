@@ -75,10 +75,10 @@ object Literal {
     case b: Boolean => Literal(b, BooleanType)
     case d: BigDecimal =>
       val decimal = Decimal(d)
-      Literal(decimal, DecimalType.fromDecimal(decimal))
+      Literal(decimal, DecimalTypeUtils.fromDecimal(decimal))
     case d: JavaBigDecimal =>
       val decimal = Decimal(d)
-      Literal(decimal, DecimalType.fromDecimal(decimal))
+      Literal(decimal, DecimalTypeUtils.fromDecimal(decimal))
     case d: Decimal => Literal(d, DecimalType(Math.max(d.precision, d.scale), d.scale))
     case i: Instant => Literal(instantToMicros(i), TimestampType)
     case t: Timestamp => Literal(DateTimeUtils.fromJavaTimestamp(t), TimestampType)
@@ -208,7 +208,7 @@ object Literal {
       case _ if v == null => true
       case ObjectType(cls) => cls.isInstance(v)
       case udt: UserDefinedType[_] => doValidate(v, udt.sqlType)
-      case dt => dataType.physicalDataType match {
+      case dt => PhysicalDataType(dataType) match {
         case PhysicalArrayType(et, _) =>
           v.isInstanceOf[ArrayData] && {
             val ar = v.asInstanceOf[ArrayData]

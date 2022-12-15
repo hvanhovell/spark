@@ -68,6 +68,8 @@ class UnivocityParser(
   private val tokenIndexArr =
     requiredSchema.map(f => java.lang.Integer.valueOf(dataSchema.indexOf(f))).toArray
 
+  private val defaultValues = ResolveDefaultColumns.getExistenceDefaultValues(requiredSchema)
+
   // True if we should inform the Univocity CSV parser to select which fields to read by their
   // positions. Generally assigned by input configuration options, except when input column(s) have
   // default values, in which case we omit the explicit indexes in order to know how many tokens
@@ -351,7 +353,7 @@ class UnivocityParser(
         case NonFatal(e) =>
           badRecordException = badRecordException.orElse(Some(e))
           // Use the corresponding DEFAULT value associated with the column, if any.
-          row.update(i, requiredSchema.existenceDefaultValues(i))
+          row.update(i, defaultValues(i))
       }
       i += 1
     }

@@ -30,7 +30,7 @@ import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.expressions.filter.Predicate
 import org.apache.spark.sql.connector.write.{RowLevelOperation, RowLevelOperationTable, Write}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
-import org.apache.spark.sql.types.{BooleanType, DataType, MetadataBuilder, StringType, StructType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DataTypeUtils, MetadataBuilder, StringType, StructType}
 
 /**
  * Base trait for DataSourceV2 write commands
@@ -316,7 +316,7 @@ case class CreateTableAsSelect(
     // the table schema is created from the query schema, so the only resolution needed is to check
     // that the columns referenced by the table's partitioning exist in the query schema
     val references = partitioning.flatMap(_.references).toSet
-    references.map(_.fieldNames).forall(query.schema.findNestedField(_).isDefined)
+    references.map(_.fieldNames).forall(DataTypeUtils.findNestedField(query.schema, _).isDefined)
   }
 
   override def withPartitioning(rewritten: Seq[Transform]): V2CreateTablePlan = {
@@ -382,7 +382,7 @@ case class ReplaceTableAsSelect(
     // the table schema is created from the query schema, so the only resolution needed is to check
     // that the columns referenced by the table's partitioning exist in the query schema
     val references = partitioning.flatMap(_.references).toSet
-    references.map(_.fieldNames).forall(query.schema.findNestedField(_).isDefined)
+    references.map(_.fieldNames).forall(DataTypeUtils.findNestedField(query.schema, _).isDefined)
   }
 
   override def tableName: Identifier = {

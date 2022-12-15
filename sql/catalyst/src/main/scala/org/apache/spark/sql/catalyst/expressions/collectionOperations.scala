@@ -28,13 +28,14 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions.ArraySortLike.NullOrder
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.{BinaryLike, SQLQueryContext, UnaryLike}
+import org.apache.spark.sql.catalyst.trees.{BinaryLike, UnaryLike}
 import org.apache.spark.sql.catalyst.trees.TreePattern.{ARRAYS_ZIP, CONCAT, TreePattern}
+import org.apache.spark.sql.catalyst.types.{OrderedPhysicalDataType, PhysicalIntegralType}
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils._
 import org.apache.spark.sql.errors.{QueryErrorsBase, QueryExecutionErrors}
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, SQLQueryContext}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.SQLOpenHashSet
 import org.apache.spark.unsafe.UTF8StringBuilder
@@ -897,11 +898,8 @@ trait ArraySortLike extends ExpectsInputTypes {
   protected def nullOrder: NullOrder
 
   @transient private lazy val lt: Comparator[Any] = {
-    val ordering = arrayExpression.dataType match {
-      case _ @ ArrayType(n: AtomicType, _) => n.ordering.asInstanceOf[Ordering[Any]]
-      case _ @ ArrayType(a: ArrayType, _) => a.interpretedOrdering.asInstanceOf[Ordering[Any]]
-      case _ @ ArrayType(s: StructType, _) => s.interpretedOrdering.asInstanceOf[Ordering[Any]]
-    }
+    val ArrayType(elementType, _) = arrayExpression.dataType
+    val ordering = OrderedPhysicalDataType.ordering(elementType)
 
     (o1: Any, o2: Any) => {
       if (o1 == null && o2 == null) {
@@ -917,11 +915,8 @@ trait ArraySortLike extends ExpectsInputTypes {
   }
 
   @transient private lazy val gt: Comparator[Any] = {
-    val ordering = arrayExpression.dataType match {
-      case _ @ ArrayType(n: AtomicType, _) => n.ordering.asInstanceOf[Ordering[Any]]
-      case _ @ ArrayType(a: ArrayType, _) => a.interpretedOrdering.asInstanceOf[Ordering[Any]]
-      case _ @ ArrayType(s: StructType, _) => s.interpretedOrdering.asInstanceOf[Ordering[Any]]
-    }
+    val ArrayType(elementType, _) = arrayExpression.dataType
+    val ordering = OrderedPhysicalDataType.ordering(elementType)
 
     (o1: Any, o2: Any) => {
       if (o1 == null && o2 == null) {
@@ -2926,9 +2921,8 @@ case class Sequence(
 
   @transient private lazy val impl: InternalSequence = dataType.elementType match {
     case iType: IntegralType =>
-      type T = iType.InternalType
-      val ct = ClassTag[T](iType.tag.mirror.runtimeClass(iType.tag.tpe))
-      new IntegralSequenceImpl(iType)(ct, iType.integral)
+      val pt = PhysicalIntegralType(iType)
+      new IntegralSequenceImpl(iType)(ClassTag(pt.cls), pt.integral)
 
     case TimestampType | TimestampNTZType =>
       if (stepOpt.isEmpty || CalendarIntervalType.acceptsType(stepOpt.get.dataType)) {
@@ -3046,10 +3040,10 @@ object Sequence {
   private class IntegralSequenceImpl[T: ClassTag]
     (elemType: IntegralType)(implicit num: Integral[T]) extends InternalSequence {
 
-    override val defaultStep: DefaultStep = new DefaultStep(
-      (elemType.ordering.lteq _).asInstanceOf[LessThanOrEqualFn],
-      elemType,
-      num.one)
+    override val defaultStep: DefaultStep = {
+      val lteq = OrderedPhysicalDataType.ordering(elemType).lteq _
+      new DefaultStep(lteq, elemType, num.one)
+    }
 
     override def eval(input1: Any, input2: Any, input3: Any): Array[T] = {
       import num._
@@ -3091,10 +3085,10 @@ object Sequence {
       (implicit num: Integral[T])
     extends InternalSequenceBase(dt, outerDataType, scale, fromLong, zoneId) {
 
-    override val defaultStep: DefaultStep = new DefaultStep(
-      (dt.ordering.lteq _).asInstanceOf[LessThanOrEqualFn],
-      YearMonthIntervalType(),
-      Period.of(0, 1, 0))
+    override val defaultStep: DefaultStep = {
+      val lteq = OrderedPhysicalDataType.ordering(dt).lteq _
+      new DefaultStep(lteq, YearMonthIntervalType(), Period.of(0, 1, 0))
+    }
 
     val intervalType: DataType = YearMonthIntervalType()
 
@@ -3117,10 +3111,10 @@ object Sequence {
       (implicit num: Integral[T])
     extends InternalSequenceBase(dt, outerDataType, scale, fromLong, zoneId) {
 
-    override val defaultStep: DefaultStep = new DefaultStep(
-      (dt.ordering.lteq _).asInstanceOf[LessThanOrEqualFn],
-      DayTimeIntervalType(),
-      Duration.ofDays(1))
+    override val defaultStep: DefaultStep = {
+      val lteq = OrderedPhysicalDataType.ordering(dt).lteq _
+      new DefaultStep(lteq, DayTimeIntervalType(), Duration.ofDays(1))
+    }
 
     val intervalType: DataType = DayTimeIntervalType()
 
@@ -3147,10 +3141,10 @@ object Sequence {
       (implicit num: Integral[T])
     extends InternalSequenceBase(dt, outerDataType, scale, fromLong, zoneId) {
 
-    override val defaultStep: DefaultStep = new DefaultStep(
-      (dt.ordering.lteq _).asInstanceOf[LessThanOrEqualFn],
-      CalendarIntervalType,
-      new CalendarInterval(0, 1, 0))
+    override val defaultStep: DefaultStep = {
+      val lteq = OrderedPhysicalDataType.ordering(dt).lteq _
+      new DefaultStep(lteq, CalendarIntervalType, new CalendarInterval(0, 1, 0))
+    }
 
     val intervalType: DataType = CalendarIntervalType
 

@@ -454,7 +454,7 @@ case class Union(
     children.map(_.output).transpose.map { attrs =>
       val firstAttr = attrs.head
       val nullable = attrs.exists(_.nullable)
-      val newDt = attrs.map(_.dataType).reduce(StructType.unionLikeMerge)
+      val newDt = attrs.map(_.dataType).reduce(DataTypeUtils.unionLikeMerge)
       if (firstAttr.dataType == newDt) {
         firstAttr.withNullability(nullable)
       } else {
@@ -906,7 +906,8 @@ object Range {
   }
 
   def getOutputAttrs: Seq[Attribute] = {
-    StructType(Array(StructField("id", LongType, nullable = false))).toAttributes
+    val schema = StructType(Array(StructField("id", LongType, nullable = false)))
+    DataTypeUtils.toAttributes(schema)
   }
 
   private def typeCoercion: TypeCoercionBase = {
@@ -1161,7 +1162,7 @@ object Aggregate {
   }
 
   def supportsHashAggregate(aggregateBufferAttributes: Seq[Attribute]): Boolean = {
-    val aggregationBufferSchema = StructType.fromAttributes(aggregateBufferAttributes)
+    val aggregationBufferSchema = DataTypeUtils.fromAttributes(aggregateBufferAttributes)
     isAggregateBufferMutable(aggregationBufferSchema)
   }
 

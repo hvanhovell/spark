@@ -423,7 +423,7 @@ abstract class DeclarativeAggregate
   val evaluateExpression: Expression
 
   /** An expression-based aggregate's bufferSchema is derived from bufferAttributes. */
-  final override def aggBufferSchema: StructType = StructType.fromAttributes(aggBufferAttributes)
+  final override def aggBufferSchema: StructType = DataTypeUtils.fromAttributes(aggBufferAttributes)
 
   lazy val inputAggBufferAttributes: Seq[AttributeReference] =
     aggBufferAttributes.map(_.newInstance())
@@ -610,7 +610,7 @@ abstract class TypedImperativeAggregate[T] extends ImperativeAggregate {
   final override lazy val inputAggBufferAttributes: Seq[AttributeReference] =
     aggBufferAttributes.map(_.newInstance())
 
-  final override def aggBufferSchema: StructType = StructType.fromAttributes(aggBufferAttributes)
+  final override def aggBufferSchema: StructType = DataTypeUtils.fromAttributes(aggBufferAttributes)
 
   /**
    * In-place replaces the aggregation buffer object stored at buffer's index

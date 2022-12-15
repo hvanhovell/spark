@@ -149,7 +149,7 @@ case class PivotFirst(
       AttributeReference(Option(kv._1).getOrElse("null").toString, valueDataType)()
     }
 
-  override val aggBufferSchema: StructType = StructType.fromAttributes(aggBufferAttributes)
+  override val aggBufferSchema: StructType = DataTypeUtils.fromAttributes(aggBufferAttributes)
 
   override val inputAggBufferAttributes: Seq[AttributeReference] =
     aggBufferAttributes.map(_.newInstance())

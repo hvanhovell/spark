@@ -22,8 +22,8 @@ import java.util.Locale
 import org.apache.spark.QueryContext
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
-import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.catalyst.util.{quoteIdentifier, toPrettySQL}
+import org.apache.spark.sql.internal.SQLQueryContext
 import org.apache.spark.sql.types.{AbstractDataType, DataType, DoubleType, FloatType, TypeCollection}
 
 /**

@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.Literal.FalseLiteral
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.{BINARY_COMPARISON, IN, INSET}
+import org.apache.spark.sql.catalyst.types.OrderedPhysicalDataType
 import org.apache.spark.sql.types._
 
 /**
@@ -183,7 +184,7 @@ object UnwrapCastInBinaryComparison extends Rule[LogicalPlan] {
       value: Any): Expression = {
 
     val fromType = fromExp.dataType
-    val ordering = toType.ordering.asInstanceOf[Ordering[Any]]
+    val ordering = OrderedPhysicalDataType(fromType).ordering.asInstanceOf[Ordering[Any]]
     val range = getRange(fromType)
 
     if (range.isDefined) {
@@ -317,7 +318,7 @@ object UnwrapCastInBinaryComparison extends Rule[LogicalPlan] {
 
     val (nullList, canCastList) = (ArrayBuffer[Literal](), ArrayBuffer[Literal]())
     val fromType = fromExp.dataType
-    val ordering = toType.ordering.asInstanceOf[Ordering[Any]]
+    val ordering = OrderedPhysicalDataType(toType).ordering.asInstanceOf[Ordering[Any]]
 
     list.foreach {
       case lit @ Literal(null, _) => nullList += lit

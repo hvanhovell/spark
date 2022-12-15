@@ -25,11 +25,11 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLId, toSQLType}
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.catalyst.trees.TreePattern.{BINARY_ARITHMETIC, TreePattern, UNARY_POSITIVE}
+import org.apache.spark.sql.catalyst.types.{PhysicalDataType, PhysicalDecimalType, PhysicalDoubleType, PhysicalFloatType, PhysicalFractionalType, PhysicalIntegralType}
 import org.apache.spark.sql.catalyst.util.{IntervalMathUtils, IntervalUtils, MathUtils, TypeUtils}
 import org.apache.spark.sql.errors.QueryExecutionErrors
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, SQLQueryContext}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 
@@ -812,12 +812,17 @@ case class Divide(
     }
   }
 
-  private lazy val div: (Any, Any) => Any = dataType match {
-    case d @ DecimalType.Fixed(precision, scale) => (l, r) => {
-      val value = d.fractional.asInstanceOf[Fractional[Any]].div(l, r)
-      checkDecimalOverflow(value.asInstanceOf[Decimal], precision, scale)
+  private lazy val div: (Any, Any) => Any = {
+    PhysicalDataType(dataType) match {
+      case d @ PhysicalDecimalType(precision, scale) => (l, r) => {
+          val value = d.fractional.div(l.asInstanceOf[Decimal], r.asInstanceOf[Decimal])
+          checkDecimalOverflow(value, precision, scale)
+        }
+      case d: PhysicalFractionalType =>
+        d.fractional.asInstanceOf[Fractional[Any]].div
+      case _ =>
+        throw QueryExecutionErrors.unsupportedTypeError(dataType)
     }
-    case ft: FractionalType => ft.fractional.asInstanceOf[Fractional[Any]].div
   }
 
   override def evalOperation(left: Any, right: Any): Any = div(left, right)
@@ -871,15 +876,13 @@ case class IntegralDivide(
   override def sqlOperator: String = "div"
 
   private lazy val div: (Any, Any) => Any = {
-    val integral = left.dataType match {
-      case i: IntegralType =>
+    val integral = PhysicalDataType(left.dataType) match {
+      case i: PhysicalIntegralType =>
         i.integral.asInstanceOf[Integral[Any]]
-      case d: DecimalType =>
+      case d: PhysicalDecimalType =>
         d.asIntegral.asInstanceOf[Integral[Any]]
-      case _: YearMonthIntervalType =>
-        IntegerType.integral.asInstanceOf[Integral[Any]]
-      case _: DayTimeIntervalType =>
-        LongType.integral.asInstanceOf[Integral[Any]]
+      case _ =>
+        throw QueryExecutionErrors.unsupportedTypeError(left.dataType)
     }
     (x, y) => {
       val res = super.dataType match {
@@ -956,22 +959,24 @@ case class Remainder(
     }
   }
 
-  private lazy val mod: (Any, Any) => Any = dataType match {
+  private lazy val mod: (Any, Any) => Any = PhysicalDataType(dataType) match {
     // special cases to make float/double primitive types faster
-    case DoubleType =>
+    case PhysicalDoubleType =>
       (left, right) => left.asInstanceOf[Double] % right.asInstanceOf[Double]
-    case FloatType =>
+    case PhysicalFloatType =>
       (left, right) => left.asInstanceOf[Float] % right.asInstanceOf[Float]
 
     // catch-all cases
-    case i: IntegralType =>
+    case i: PhysicalIntegralType =>
       val integral = i.integral.asInstanceOf[Integral[Any]]
       (left, right) => integral.rem(left, right)
 
-    case d @ DecimalType.Fixed(precision, scale) =>
+    case d @ PhysicalDecimalType(precision, scale) =>
       val integral = d.asIntegral.asInstanceOf[Integral[Any]]
       (left, right) =>
         checkDecimalOverflow(integral.rem(left, right).asInstanceOf[Decimal], precision, scale)
+    case _ =>
+      throw QueryExecutionErrors.unsupportedTypeError(dataType)
   }
 
   override def evalOperation(left: Any, right: Any): Any = mod(left, right)

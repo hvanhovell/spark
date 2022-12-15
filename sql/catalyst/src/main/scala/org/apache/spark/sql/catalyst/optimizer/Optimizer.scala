@@ -2403,8 +2403,9 @@ object GenerateOptimization extends Rule[LogicalPlan] {
                 e.withNewChildren(Seq(extractor))
             }
             // As we change the child of the generator, its output data type must be updated.
+            val elementAttributes = DataTypeUtils.toAttributes(rewrittenG.generator.elementSchema)
             val updatedGeneratorOutput = rewrittenG.generatorOutput
-              .zip(rewrittenG.generator.elementSchema.toAttributes)
+              .zip(elementAttributes)
               .map { case (oldAttr, newAttr) =>
                 newAttr.withExprId(oldAttr.exprId).withName(oldAttr.name)
               }

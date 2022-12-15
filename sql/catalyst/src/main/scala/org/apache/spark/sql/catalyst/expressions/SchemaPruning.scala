@@ -42,7 +42,7 @@ object SchemaPruning extends SQLConfHelper {
     // original schema
     val mergedSchema = requestedRootFields
       .map { root: RootField => StructType(Array(root.field)) }
-      .reduceLeft(_ merge _)
+      .reduceLeft(DataTypeUtils.mergeStructs)
     val mergedDataSchema =
       StructType(schema.map(d => mergedSchema.find(m => resolver(m.name, d.name)).getOrElse(d)))
     // Sort the fields of mergedDataSchema according to their order in dataSchema,
@@ -125,7 +125,7 @@ object SchemaPruning extends SQLConfHelper {
           //    this optional root field too.
           val rootFieldType = StructType(Array(root.field))
           val optFieldType = StructType(Array(opt.field))
-          val merged = optFieldType.merge(rootFieldType)
+          val merged = DataTypeUtils.mergeStructs(optFieldType, rootFieldType)
           merged.sameType(optFieldType)
         }
       }

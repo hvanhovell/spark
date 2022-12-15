@@ -38,8 +38,7 @@ import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
 import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
-import org.apache.spark.sql.catalyst.trees.{AlwaysProcess, CurrentOrigin}
-import org.apache.spark.sql.catalyst.trees.CurrentOrigin.withOrigin
+import org.apache.spark.sql.catalyst.trees.AlwaysProcess
 import org.apache.spark.sql.catalyst.trees.TreePattern._
 import org.apache.spark.sql.catalyst.util.{toPrettySQL, CharVarcharUtils, StringUtils}
 import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns._
@@ -50,7 +49,8 @@ import org.apache.spark.sql.connector.catalog.functions.{AggregateFunction => V2
 import org.apache.spark.sql.connector.expressions.{FieldReference, IdentityTransform, Transform}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{CurrentOrigin, SQLConf}
+import org.apache.spark.sql.internal.CurrentOrigin.withOrigin
 import org.apache.spark.sql.internal.SQLConf.{PartitionOverwriteMode, StoreAssignmentPolicy}
 import org.apache.spark.sql.internal.connector.V1Function
 import org.apache.spark.sql.types._
@@ -1221,8 +1221,8 @@ class Analyzer(override val catalogManager: CatalogManager)
             }
             SubqueryAlias(
               catalog.name +: ident.asMultipartIdentifier,
-              StreamingRelationV2(None, table.name, table, options, table.schema.toAttributes,
-                Some(catalog), Some(ident), v1Fallback))
+              StreamingRelationV2(None, table.name, table, options,
+                DataTypeUtils.toAttributes(table.schema), Some(catalog), Some(ident), v1Fallback))
           } else {
             SubqueryAlias(
               catalog.name +: ident.asMultipartIdentifier,
@@ -2995,7 +2995,7 @@ class Analyzer(override val catalogManager: CatalogManager)
     private[analysis] def makeGeneratorOutput(
         generator: Generator,
         names: Seq[String]): Seq[Attribute] = {
-      val elementAttrs = generator.elementSchema.toAttributes
+      val elementAttrs = DataTypeUtils.toAttributes(generator.elementSchema)
 
       if (names.length == elementAttrs.length) {
         names.zip(elementAttrs).map {
@@ -3364,11 +3364,11 @@ class Analyzer(override val catalogManager: CatalogManager)
             val dataType = udf.children(i).dataType
             encOpt.map { enc =>
               val attrs = if (enc.isSerializedAsStructForTopLevel) {
-                dataType.asInstanceOf[StructType].toAttributes
+                DataTypeUtils.toAttributes(dataType.asInstanceOf[StructType])
               } else {
                 // the field name doesn't matter here, so we use
                 // a simple literal to avoid any overhead
-                new StructType().add("input", dataType).toAttributes
+                DataTypeUtils.toAttributes(new StructType().add("input", dataType))
               }
               enc.resolveAndBind(attrs)
             }
@@ -3890,8 +3890,8 @@ class Analyzer(override val catalogManager: CatalogManager)
         table: ResolvedTable,
         fieldName: Seq[String],
         context: Expression): Option[ResolvedFieldName] = {
-      table.schema.findNestedField(
-        fieldName, includeCollections = true, conf.resolver, context.origin
+      DataTypeUtils.findNestedField(table.schema, fieldName,
+        includeCollections = true, conf.resolver, context.origin
       ).map {
         case (path, field) => ResolvedFieldName(path, field)
       }

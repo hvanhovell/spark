@@ -22,7 +22,7 @@ import scala.collection.JavaConverters._
 import org.apache.spark.{QueryContext, SparkThrowable, SparkThrowableHelper}
 import org.apache.spark.annotation.Stable
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.catalyst.trees.Origin
+import org.apache.spark.sql.internal.Origin
 
 /**
  * Thrown when a query fails to analyze, usually because the query itself is invalid.

@@ -578,7 +578,7 @@ trait CheckAnalysis extends PredicateHelper with LookupCatalog with QueryErrorsB
           case create: V2CreateTablePlan =>
             val references = create.partitioning.flatMap(_.references).toSet
             val badReferences = references.map(_.fieldNames).flatMap { column =>
-              create.tableSchema.findNestedField(column) match {
+              DataTypeUtils.findNestedField(create.tableSchema, column) match {
                 case Some(_) =>
                   None
                 case _ =>
@@ -1288,8 +1288,12 @@ trait CheckAnalysis extends PredicateHelper with LookupCatalog with QueryErrorsB
    */
   private def checkAlterTableCommand(alter: AlterTableCommand): Unit = {
     def checkColumnNotExists(op: String, fieldNames: Seq[String], struct: StructType): Unit = {
-      if (struct.findNestedField(
-          fieldNames, includeCollections = true, alter.conf.resolver).isDefined) {
+      val field = DataTypeUtils.findNestedField(
+        struct,
+        fieldNames,
+        includeCollections = true,
+        alter.conf.resolver)
+      if (field.isDefined) {
         alter.failAnalysis(
           errorClass = "_LEGACY_ERROR_TEMP_2323",
           messageParameters = Map(

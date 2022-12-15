@@ -358,7 +358,7 @@ package object dsl {
       def struct(structType: StructType): AttributeReference =
         AttributeReference(s, structType, nullable = true)()
       def struct(attrs: AttributeReference*): AttributeReference =
-        struct(StructType.fromAttributes(attrs))
+        struct(DataTypeUtils.fromAttributes(attrs))
 
       /** Creates a new AttributeReference of object type */
       def obj(cls: Class[_]): AttributeReference =

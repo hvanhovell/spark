@@ -31,13 +31,13 @@ import org.apache.spark.sql.catalyst.{InternalRow, NoopFilters, StructFilters}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.catalyst.util.LegacyDateFormats.FAST_DATE_FORMAT
-import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns._
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
+import org.apache.spark.util.collection.BitSet
 
 /**
  * Constructs a parser for a given schema that translates a json string to an [[InternalRow]].
@@ -117,8 +117,10 @@ class JacksonParser(
     } else {
       new NoopFilters
     }
+    val dvs = ResolveDefaultColumns.getExistenceDefaultValues(st)
     (parser: JsonParser) => parseJsonToken[Iterable[InternalRow]](parser, st) {
-      case START_OBJECT => convertObject(parser, st, fieldConverters, jsonFilters, isRoot = true)
+      case START_OBJECT =>
+        convertObject(parser, st, dvs, fieldConverters, jsonFilters, isRoot = true)
         // SPARK-3308: support reading top level JSON arrays and take every element
         // in such an array as a row
         //
@@ -155,6 +157,10 @@ class JacksonParser(
 
   private def makeArrayRootConverter(at: ArrayType): JsonParser => Iterable[InternalRow] = {
     val elemConverter = makeConverter(at.elementType)
+    lazy val dvs: Array[Any] = at.elementType match {
+      case st: StructType => ResolveDefaultColumns.getExistenceDefaultValues(st)
+      case _ => null
+    }
     (parser: JsonParser) => parseJsonToken[Iterable[InternalRow]](parser, at) {
       case START_ARRAY => Some(InternalRow(convertArray(parser, elemConverter)))
       case START_OBJECT if at.elementType.isInstanceOf[StructType] =>
@@ -178,7 +184,8 @@ class JacksonParser(
         //
         val st = at.elementType.asInstanceOf[StructType]
         val fieldConverters = st.map(_.dataType).map(makeConverter).toArray
-        Some(InternalRow(new GenericArrayData(convertObject(parser, st, fieldConverters).toArray)))
+        val rows = convertObject(parser, st, dvs, fieldConverters).toArray
+        Some(InternalRow(new GenericArrayData(rows)))
     }
   }
 
@@ -354,8 +361,9 @@ class JacksonParser(
 
     case st: StructType =>
       val fieldConverters = st.map(_.dataType).map(makeConverter).toArray
+      val defaultValues = ResolveDefaultColumns.getExistenceDefaultValues(st)
       (parser: JsonParser) => parseJsonToken[InternalRow](parser, dataType) {
-        case START_OBJECT => convertObject(parser, st, fieldConverters).get
+        case START_OBJECT => convertObject(parser, st, defaultValues, fieldConverters).get
       }
 
     case at: ArrayType =>
@@ -438,22 +446,23 @@ class JacksonParser(
   private def convertObject(
       parser: JsonParser,
       schema: StructType,
+      defaultValues: Array[Any],
       fieldConverters: Array[ValueConverter],
       structFilters: StructFilters = new NoopFilters(),
       isRoot: Boolean = false): Option[InternalRow] = {
     val row = new GenericInternalRow(schema.length)
+    val updatedFields = new BitSet(schema.length)
     var badRecordException: Option[Throwable] = None
     var skipRow = false
 
     structFilters.reset()
-    resetExistenceDefaultsBitmask(schema)
     while (!skipRow && nextUntil(parser, JsonToken.END_OBJECT)) {
       schema.getFieldIndex(parser.getCurrentName) match {
         case Some(index) =>
           try {
             row.update(index, fieldConverters(index).apply(parser))
             skipRow = structFilters.skipRow(row, index)
-            schema.existenceDefaultsBitmask(index) = false
+            updatedFields.set(index)
           } catch {
             case e: SparkUpgradeException => throw e
             case NonFatal(e) =>
@@ -467,7 +476,16 @@ class JacksonParser(
     if (skipRow) {
       None
     } else if (badRecordException.isEmpty) {
-      applyExistenceDefaultValuesToRow(schema, row)
+      var i = 0
+      while (i < schema.length) {
+        if (!updatedFields.get(i)) {
+          val defaultValue = defaultValues(i)
+          if (defaultValue != null) {
+            row.update(i, defaultValue)
+          }
+        }
+        i += 1
+      }
       Some(row)
     } else {
       throw PartialResultException(row, badRecordException.get)

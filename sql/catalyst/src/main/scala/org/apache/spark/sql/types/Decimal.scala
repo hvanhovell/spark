@@ -17,16 +17,15 @@
 
 package org.apache.spark.sql.types
 
-import java.math.{BigInteger, MathContext, RoundingMode, BigDecimal => JavaBigDecimal}
+import java.math.{BigDecimal => JavaBigDecimal, BigInteger, MathContext, RoundingMode}
 
 import scala.math.min
 import scala.util.Try
 
 import org.apache.spark.annotation.Unstable
 import org.apache.spark.sql.catalyst.expressions.Literal
-import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, SQLQueryContext}
 import org.apache.spark.sql.types.DecimalType.{MAX_PRECISION, MAX_SCALE, MINIMUM_ADJUSTED_SCALE}
 import org.apache.spark.unsafe.types.UTF8String
 

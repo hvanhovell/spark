@@ -17,11 +17,14 @@
 package org.apache.spark.sql.catalyst.types
 
 import scala.reflect.runtime.universe.{typeTag, TypeTag}
+import scala.util.control.NonFatal
 
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.InterpretedOrdering
-import org.apache.spark.sql.catalyst.util.{ArrayData, SQLOrderingUtil}
+import org.apache.spark.sql.catalyst.util.{ArrayData, MapData, SQLOrderingUtil}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.{ByteArray, UTF8String}
+import org.apache.spark.unsafe.types.{ByteArray, CalendarInterval, UTF8String}
 
 sealed abstract class PhysicalDataType {
   /**
@@ -60,10 +63,34 @@ object PhysicalDataType {
   }
 }
 
-sealed abstract class PhysicalAtomicType extends PhysicalDataType {
+sealed abstract class TypedPhysicalDataType extends PhysicalDataType {
   private[sql] type InternalType
+  private[sql] val cls: Class[InternalType]
+}
+
+object TypedPhysicalDataType {
+  def apply(dt: DataType): TypedPhysicalDataType =
+    PhysicalDataType(dt).asInstanceOf[TypedPhysicalDataType]
+}
+
+sealed abstract class OrderedPhysicalDataType extends TypedPhysicalDataType {
+  private[sql] def ordering: Ordering[InternalType]
+}
+
+object OrderedPhysicalDataType {
+  def apply(dt: DataType): OrderedPhysicalDataType =
+    PhysicalDataType(dt).asInstanceOf[OrderedPhysicalDataType]
+
+  def ordering(dt: DataType): Ordering[Any] = {
+    try apply(dt).ordering.asInstanceOf[Ordering[Any]] catch {
+      case NonFatal(_) =>
+        throw QueryExecutionErrors.unsupportedTypeError(dt)
+    }
+  }
+}
+
+sealed abstract class PhysicalAtomicType extends OrderedPhysicalDataType {
   private[sql] val tag: TypeTag[InternalType]
-  private[sql] val ordering: Ordering[InternalType]
 }
 
 sealed abstract class PhysicalNumericType extends PhysicalAtomicType {
@@ -77,8 +104,20 @@ sealed abstract class PhysicalNumericType extends PhysicalAtomicType {
   private[sql] def exactNumeric: Numeric[InternalType] = numeric
 }
 
+object PhysicalNumericType {
+  def apply(nt: NumericType): PhysicalNumericType = {
+    PhysicalDataType(nt).asInstanceOf[PhysicalNumericType]
+  }
+}
+
 sealed abstract class PhysicalIntegralType extends PhysicalNumericType {
   private[sql] val integral: Integral[InternalType]
+}
+
+object PhysicalIntegralType {
+  def apply(it: IntegralType): PhysicalIntegralType = {
+    PhysicalDataType(it).asInstanceOf[PhysicalIntegralType]
+  }
 }
 
 sealed abstract class PhysicalFractionalType extends PhysicalNumericType {
@@ -86,21 +125,29 @@ sealed abstract class PhysicalFractionalType extends PhysicalNumericType {
   private[sql] val asIntegral: Integral[InternalType]
 }
 
+object PhysicalFractionalType {
+  def apply(ft: FractionalType): PhysicalFractionalType = {
+    PhysicalDataType(ft).asInstanceOf[PhysicalFractionalType]
+  }
+}
+
 class PhysicalBooleanType() extends PhysicalAtomicType {
-  private[sql] type InternalType = Boolean
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = Boolean
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override def defaultSize: Int = 1
 }
 
 case object PhysicalBooleanType extends PhysicalBooleanType
 
 class PhysicalByteType() extends PhysicalIntegralType {
-  private[sql] type InternalType = Byte
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Byte]]
-  private[sql] val integral = implicitly[Integral[Byte]]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = Byte
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Byte]]
+  override private[sql] val integral = implicitly[Integral[Byte]]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override private[sql] val exactNumeric = ByteExactNumeric
   override def defaultSize: Int = 1
 }
@@ -108,91 +155,103 @@ class PhysicalByteType() extends PhysicalIntegralType {
 case object PhysicalByteType extends PhysicalByteType
 
 class PhysicalShortType() extends PhysicalIntegralType {
-  private[sql] type InternalType = Short
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Short]]
-  private[sql] val integral = implicitly[Integral[Short]]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = Short
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Short]]
+  override private[sql] val integral = implicitly[Integral[Short]]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override private[sql] val exactNumeric = ShortExactNumeric
   override def defaultSize: Int = 2
 }
 case object PhysicalShortType extends PhysicalShortType
 
 class PhysicalIntegerType() extends PhysicalIntegralType {
-  private[sql] type InternalType = Int
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Int]]
-  private[sql] val integral = implicitly[Integral[Int]]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = Int
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Int]]
+  override private[sql] val integral = implicitly[Integral[Int]]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override private[sql] val exactNumeric = IntegerExactNumeric
   override def defaultSize: Int = 4
 }
 case object PhysicalIntegerType extends PhysicalIntegerType
 
 class PhysicalLongType() extends PhysicalIntegralType {
-  private[sql] type InternalType = Long
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Long]]
-  private[sql] val integral = implicitly[Integral[Long]]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = Long
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Long]]
+  override private[sql] val integral = implicitly[Integral[Long]]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override private[sql] val exactNumeric = LongExactNumeric
   override def defaultSize: Int = 8
 }
 case object PhysicalLongType extends PhysicalLongType
 
 case class PhysicalDecimalType(precision: Int, scale: Int) extends PhysicalFractionalType {
-  private[sql] type InternalType = Decimal
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = Decimal.DecimalIsFractional
-  private[sql] val fractional = Decimal.DecimalIsFractional
-  private[sql] val ordering = Decimal.DecimalIsFractional
-  private[sql] val asIntegral = Decimal.DecimalAsIfIntegral
+  override private[sql] type InternalType = Decimal
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = Decimal.DecimalIsFractional
+  override private[sql] val fractional = Decimal.DecimalIsFractional
+  override private[sql] val ordering = Decimal.DecimalIsFractional
+  override private[sql] val asIntegral = Decimal.DecimalAsIfIntegral
   override private[sql] def exactNumeric = DecimalExactNumeric
   override def defaultSize: Int = if (precision <= Decimal.MAX_LONG_DIGITS) 8 else 16
 }
 
 class PhysicalDoubleType() extends PhysicalFractionalType {
-  private[sql] type InternalType = Double
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Double]]
-  private[sql] val fractional = implicitly[Fractional[Double]]
-  private[sql] val ordering = (x: Double, y: Double) => SQLOrderingUtil.compareDoubles(x, y)
-  private[sql] val asIntegral = DoubleType.DoubleAsIfIntegral
+  override private[sql] type InternalType = Double
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Double]]
+  override private[sql] val fractional = implicitly[Fractional[Double]]
+  override private[sql] val ordering =
+    (x: Double, y: Double) => SQLOrderingUtil.compareDoubles(x, y)
+  override private[sql] val asIntegral = DoubleType.DoubleAsIfIntegral
   override private[sql] def exactNumeric = DoubleExactNumeric
   override def defaultSize: Int = 8
 }
 case object PhysicalDoubleType extends PhysicalDoubleType
 
 class PhysicalFloatType() extends PhysicalFractionalType {
-  private[sql] type InternalType = Float
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val numeric = implicitly[Numeric[Float]]
-  private[sql] val fractional = implicitly[Fractional[Float]]
-  private[sql] val ordering = (x: Float, y: Float) => SQLOrderingUtil.compareFloats(x, y)
-  private[sql] val asIntegral = FloatType.FloatAsIfIntegral
+  override private[sql] type InternalType = Float
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val numeric = implicitly[Numeric[Float]]
+  override private[sql] val fractional = implicitly[Fractional[Float]]
+  override private[sql] val ordering = (x: Float, y: Float) => SQLOrderingUtil.compareFloats(x, y)
+  override private[sql] val asIntegral = FloatType.FloatAsIfIntegral
   override private[sql] def exactNumeric = FloatExactNumeric
   override def defaultSize: Int = 4
 }
 case object PhysicalFloatType extends PhysicalFloatType
 
-class PhysicalCalendarIntervalType() extends PhysicalDataType {
+class PhysicalCalendarIntervalType() extends TypedPhysicalDataType {
+  override private[sql] type InternalType = CalendarInterval
+  override private[sql] val cls = classOf[InternalType]
   override def defaultSize: Int = 16
 }
 case object PhysicalCalendarIntervalType extends PhysicalCalendarIntervalType
 
 class PhysicalBinaryType() extends PhysicalAtomicType {
-  private[sql] type InternalType = Array[Byte]
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val ordering = (x: Array[Byte], y: Array[Byte]) => ByteArray.compareBinary(x, y)
+  override private[sql] type InternalType = Array[Byte]
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val ordering =
+    (x: Array[Byte], y: Array[Byte]) => ByteArray.compareBinary(x, y)
   override def defaultSize: Int = 100
 }
 
 case object PhysicalBinaryType extends PhysicalBinaryType
 
 class PhysicalStringType() extends PhysicalAtomicType {
-  private[sql] type InternalType = UTF8String
-  @transient private[sql] lazy val tag = typeTag[InternalType]
-  private[sql] val ordering = implicitly[Ordering[InternalType]]
+  override private[sql] type InternalType = UTF8String
+  @transient override private[sql] lazy val tag = typeTag[InternalType]
+  override private[sql] val cls = classOf[InternalType]
+  override private[sql] val ordering = implicitly[Ordering[InternalType]]
   override def defaultSize: Int = 20
 }
 
@@ -201,7 +260,10 @@ case object PhysicalStringType extends PhysicalStringType
 case class PhysicalArrayType(
     elementType: DataType,
     containsNull: Boolean)
-  extends PhysicalDataType {
+  extends OrderedPhysicalDataType {
+  override private[sql] type InternalType = ArrayData
+  override private[sql] val cls = classOf[InternalType]
+
   /**
    * The default size of a value of the ArrayType is the default size of the element type.
    * We assume that there is only 1 element on average in an array. See SPARK-18853.
@@ -211,11 +273,9 @@ case class PhysicalArrayType(
   lazy val physicalElementType: PhysicalDataType = PhysicalDataType(elementType)
 
   @transient
-  private[sql] lazy val interpretedOrdering: Ordering[ArrayData] = new Ordering[ArrayData] {
+  private[sql] lazy val ordering: Ordering[ArrayData] = new Ordering[ArrayData] {
     private[this] val elementOrdering: Ordering[Any] = physicalElementType match {
-      case dt: PhysicalAtomicType => dt.ordering.asInstanceOf[Ordering[Any]]
-      case a : PhysicalArrayType => a.interpretedOrdering.asInstanceOf[Ordering[Any]]
-      // case s: StructType => s.interpretedOrdering.asInstanceOf[Ordering[Any]]
+      case o: OrderedPhysicalDataType => o.ordering.asInstanceOf[Ordering[Any]]
       case other =>
         throw new IllegalArgumentException(s"Type $other does not support ordered operations")
     }
@@ -260,7 +320,9 @@ case class PhysicalMapType(
     keyType: DataType,
     valueType: DataType,
     valueContainsNull: Boolean)
-  extends PhysicalDataType {
+  extends TypedPhysicalDataType {
+  override private[sql] type InternalType = MapData
+  override private[sql] val cls = classOf[InternalType]
   /**
    * The default size of a value of the MapType is
    * (the default size of the key type + the default size of the value type).
@@ -269,15 +331,17 @@ case class PhysicalMapType(
   override def defaultSize: Int = 1 * (keyType.defaultSize + valueType.defaultSize)
 }
 
-case class PhysicalStructType(fields: Array[StructField]) extends PhysicalDataType {
+case class PhysicalStructType(fields: Array[StructField]) extends OrderedPhysicalDataType {
+  override private[sql] type InternalType = InternalRow
+  override private[sql] val cls = classOf[InternalType]
   /**
    * The default size of a value of the StructType is the total default sizes of all field types.
    */
   override def defaultSize: Int = fields.map(_.dataType.defaultSize).sum
 
   @transient
-  private[sql] lazy val interpretedOrdering =
-    InterpretedOrdering.forSchema(this.fields.map(_.dataType))
+  override private[sql] lazy val ordering =
+    InterpretedOrdering.forSchema(fields.map(_.dataType))
 }
 
 class PhysicalNullType() extends PhysicalDataType {
