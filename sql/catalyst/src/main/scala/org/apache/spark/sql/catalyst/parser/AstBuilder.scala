@@ -2406,7 +2406,7 @@ class AstBuilder extends DataTypeBuilder with SQLConfHelper with Logging {
             IntervalUtils.stringToInterval(UTF8String.fromString(value))
           } catch {
             case e: IllegalArgumentException =>
-              val ex = QueryParsingErrors.cannotParseIntervalValueError(value, ctx)
+              val ex = QueryParsingErrors.cannotParseValueTypeError(valueType, value, ctx)
               ex.setStackTrace(e.getStackTrace)
               throw ex
           }
@@ -4676,5 +4676,12 @@ class AstBuilder extends DataTypeBuilder with SQLConfHelper with Logging {
    */
   override def visitTimestampdiff(ctx: TimestampdiffContext): Expression = withOrigin(ctx) {
     TimestampDiff(ctx.unit.getText, expression(ctx.startTimestamp), expression(ctx.endTimestamp))
+  }
+
+  /**
+   * Create a named parameter which represents a literal with a non-bound value and unknown type.
+   * */
+  override def visitParameterLiteral(ctx: ParameterLiteralContext): Expression = withOrigin(ctx) {
+    Parameter(ctx.identifier().getText)
   }
 }
