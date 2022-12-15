@@ -31,7 +31,7 @@ import org.apache.spark.sql.catalyst.{expressions, AliasIdentifier, FunctionIden
 import org.apache.spark.sql.catalyst.analysis.{GlobalTempView, LocalTempView, MultiAlias, UnresolvedAlias, UnresolvedAttribute, UnresolvedFunction, UnresolvedRelation, UnresolvedStar}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.CombineUnions
-import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
+import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.{logical, Cross, FullOuter, Inner, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter, UsingJoin}
 import org.apache.spark.sql.catalyst.plans.logical.{Deduplicate, Except, Intersect, LocalRelation, LogicalPlan, Sample, SubqueryAlias, Union}
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
@@ -40,6 +40,7 @@ import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.arrow.ArrowConverters
 import org.apache.spark.sql.execution.command.CreateViewCommand
 import org.apache.spark.sql.execution.python.UserDefinedPythonFunction
+import org.apache.spark.sql.parser.ParseException
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
@@ -351,7 +352,7 @@ class SparkConnectPlanner(session: SparkSession) {
     if (structType == null) {
       throw InvalidPlanInput(s"Input data for LocalRelation does not produce a schema.")
     }
-    val attributes = structType.toAttributes
+    val attributes = DataTypeUtils.toAttributes(structType)
     val proj = UnsafeProjection.create(attributes, attributes)
     new logical.LocalRelation(attributes, rows.map(r => proj(r).copy()).toSeq)
   }
