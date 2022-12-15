@@ -54,10 +54,9 @@ object PhysicalDataType {
     case _: CharType => PhysicalStringType
     case _: VarcharType => PhysicalStringType
     case StringType => PhysicalStringType
-    case ArrayType(elementType, containsNull) =>
-      PhysicalArrayType(elementType, containsNull)
-    case MapType(keyType, valueType, valueContainsNull) =>
-      PhysicalMapType(keyType, valueType, valueContainsNull)
+    case st: StructType => PhysicalStructType(st)
+    case at: ArrayType => PhysicalArrayType(at)
+    case mt: MapType => PhysicalMapType(mt)
     case udt: UserDefinedType[_] => apply(udt.sqlType)
     case _ => UninitializedPhysicalType
   }
@@ -316,6 +315,10 @@ case class PhysicalArrayType(
   }
 }
 
+object PhysicalArrayType {
+  def apply(at: ArrayType): PhysicalArrayType = PhysicalArrayType(at.elementType, at.containsNull)
+}
+
 case class PhysicalMapType(
     keyType: DataType,
     valueType: DataType,
@@ -331,6 +334,12 @@ case class PhysicalMapType(
   override def defaultSize: Int = 1 * (keyType.defaultSize + valueType.defaultSize)
 }
 
+object PhysicalMapType {
+  def apply(mt: MapType): PhysicalMapType = {
+    PhysicalMapType(mt.keyType, mt.valueType, mt.valueContainsNull)
+  }
+}
+
 case class PhysicalStructType(fields: Array[StructField]) extends OrderedPhysicalDataType {
   override private[sql] type InternalType = InternalRow
   override private[sql] val cls = classOf[InternalType]
@@ -342,6 +351,10 @@ case class PhysicalStructType(fields: Array[StructField]) extends OrderedPhysica
   @transient
   override private[sql] lazy val ordering =
     InterpretedOrdering.forSchema(fields.map(_.dataType))
+}
+
+object PhysicalStructType {
+  def apply(st: StructType): PhysicalStructType = PhysicalStructType(st.fields)
 }
 
 class PhysicalNullType() extends PhysicalDataType {

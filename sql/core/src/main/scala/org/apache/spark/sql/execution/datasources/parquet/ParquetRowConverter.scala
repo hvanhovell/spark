@@ -34,9 +34,8 @@ import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.{BINARY, FIXED_
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, CaseInsensitiveMap, DateTimeUtils, GenericArrayData}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, CaseInsensitiveMap, DateTimeUtils, GenericArrayData, ResolveDefaultColumns}
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
-import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns._
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.DataSourceUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -191,7 +190,6 @@ private[parquet] class ParquetRowConverter(
    * The [[InternalRow]] converted from an entire Parquet record.
    */
   def currentRecord: InternalRow = {
-    applyExistenceDefaultValuesToRow(catalystType, currentRow)
     currentRow
   }
 
@@ -227,22 +225,22 @@ private[parquet] class ParquetRowConverter(
       } else {
         Map.empty[Int, Int]
       }
-    // If any fields in the Catalyst result schema have associated existence default values,
-    // maintain a boolean array to track which fields have been explicitly assigned for each row.
-    if (catalystType.hasExistenceDefaultValues) {
-      for (i <- 0 until catalystType.existenceDefaultValues.size) {
-        catalystType.existenceDefaultsBitmask(i) =
-          // Assume the schema for a Parquet file-based table contains N fields. Then if we later
-          // run a command "ALTER TABLE t ADD COLUMN c DEFAULT <value>" on the Parquet table, this
-          // adds one field to the Catalyst schema. Then if we query the old files with the new
-          // Catalyst schema, we should only apply the existence default value to all columns >= N.
-          if (i < parquetType.getFieldCount) {
-            false
-          } else {
-            catalystType.existenceDefaultValues(i) != null
-          }
+
+    // Assume the schema for a Parquet file-based table contains N fields. Then if we later
+    // run a command "ALTER TABLE t ADD COLUMN c DEFAULT <value>" on the Parquet table, this
+    // adds one field to the Catalyst schema. Then if we query the old files with the new
+    // Catalyst schema, we should only apply the existence default value to all columns >= N.
+    var i = parquetType.getFieldCount
+    while (i < catalystType.length) {
+      val existenceDefaultValue = ResolveDefaultColumns.getExistenceDefaultValue(catalystType(i))
+      if (existenceDefaultValue != null) {
+        // Set the existence value. This only needs to be done once since
+        // the row is reused, and the reader won't touch these fields.
+        currentRow.update(i, existenceDefaultValue)
       }
+      i += 1
     }
+
     parquetType.getFields.asScala.map { parquetField =>
       val catalystFieldIndex = Option(parquetField.getId).flatMap { fieldId =>
         // field has id, try to match by id first before falling back to match by name
@@ -316,13 +314,13 @@ private[parquet] class ParquetRowConverter(
       case ByteType =>
         new ParquetPrimitiveConverter(updater) {
           override def addInt(value: Int): Unit =
-            updater.setByte(value.asInstanceOf[ByteType#InternalType])
+            updater.setByte(value.asInstanceOf[Byte])
         }
 
       case ShortType =>
         new ParquetPrimitiveConverter(updater) {
           override def addInt(value: Int): Unit =
-            updater.setShort(value.asInstanceOf[ShortType#InternalType])
+            updater.setShort(value.asInstanceOf[Short])
         }
 
       // For INT32 backed decimals

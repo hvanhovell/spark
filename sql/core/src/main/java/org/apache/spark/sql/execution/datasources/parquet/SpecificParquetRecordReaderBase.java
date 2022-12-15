@@ -32,6 +32,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.parquet.VersionParser;
 import org.apache.parquet.VersionParser.ParsedVersion;
 import org.apache.parquet.column.page.PageReadStore;
+import org.apache.spark.sql.types.DataTypeUtils$;
 import scala.Option;
 
 import org.apache.hadoop.conf.Configuration;
@@ -114,7 +115,7 @@ public abstract class SpecificParquetRecordReaderBase<T> extends RecordReader<Vo
     fileReader.setRequestedSchema(requestedSchema);
     String sparkRequestedSchemaString =
         configuration.get(ParquetReadSupport$.MODULE$.SPARK_ROW_REQUESTED_SCHEMA());
-    this.sparkRequestedSchema = StructType$.MODULE$.fromString(sparkRequestedSchemaString);
+    this.sparkRequestedSchema = DataTypeUtils$.MODULE$.fromString(sparkRequestedSchemaString);
     ParquetToSparkSchemaConverter converter = new ParquetToSparkSchemaConverter(configuration);
     this.parquetColumn = converter.convertParquetColumn(requestedSchema,
       Option.apply(this.sparkRequestedSchema));

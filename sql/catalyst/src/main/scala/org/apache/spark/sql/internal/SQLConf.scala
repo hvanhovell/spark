@@ -17,14 +17,12 @@
 
 package org.apache.spark.sql.internal
 
-import java.util.{Locale, NoSuchElementException, Properties, TimeZone}
+import java.util.{Locale, TimeZone}
 import java.util
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.Deflater
 
-import scala.collection.JavaConverters._
-import scala.collection.immutable
 import scala.util.Try
 import scala.util.control.NonFatal
 import scala.util.matching.Regex
@@ -32,7 +30,6 @@ import scala.util.matching.Regex
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.{ErrorMessageFormat, SparkConf, SparkContext, TaskContext}
-import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.internal.config.{IGNORE_MISSING_FILES => SPARK_IGNORE_MISSING_FILES}
 import org.apache.spark.network.util.ByteUnit
@@ -43,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
 import org.apache.spark.sql.catalyst.plans.logical.HintErrorHandler
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
-import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types.{AtomicType, TimestampNTZType, TimestampType}
 import org.apache.spark.unsafe.array.ByteArrayMethods
 import org.apache.spark.util.Utils
@@ -53,48 +50,11 @@ import org.apache.spark.util.Utils
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-object SQLConf {
-
-  private[this] val sqlConfEntriesUpdateLock = new Object
-
-  @volatile
-  private[this] var sqlConfEntries: util.Map[String, ConfigEntry[_]] = util.Collections.emptyMap()
-
+object SQLConf extends SimpleConfigRegistry {
   private[this] val staticConfKeysUpdateLock = new Object
 
   @volatile
   private[this] var staticConfKeys: java.util.Set[String] = util.Collections.emptySet()
-
-  private def register(entry: ConfigEntry[_]): Unit = sqlConfEntriesUpdateLock.synchronized {
-    require(!sqlConfEntries.containsKey(entry.key),
-      s"Duplicate SQLConfigEntry. ${entry.key} has been registered")
-    val updatedMap = new java.util.HashMap[String, ConfigEntry[_]](sqlConfEntries)
-    updatedMap.put(entry.key, entry)
-    sqlConfEntries = updatedMap
-  }
-
-  // For testing only
-  private[sql] def unregister(entry: ConfigEntry[_]): Unit = sqlConfEntriesUpdateLock.synchronized {
-    val updatedMap = new java.util.HashMap[String, ConfigEntry[_]](sqlConfEntries)
-    updatedMap.remove(entry.key)
-    sqlConfEntries = updatedMap
-  }
-
-  private[internal] def getConfigEntry(key: String): ConfigEntry[_] = {
-    sqlConfEntries.get(key)
-  }
-
-  private[internal] def getConfigEntries(): util.Collection[ConfigEntry[_]] = {
-    sqlConfEntries.values()
-  }
-
-  private[internal] def containsConfigEntry(entry: ConfigEntry[_]): Boolean = {
-    getConfigEntry(entry.key) == entry
-  }
-
-  private[sql] def containsConfigKey(key: String): Boolean = {
-    sqlConfEntries.containsKey(key)
-  }
 
   def registerStaticConfigKey(key: String): Unit = staticConfKeysUpdateLock.synchronized {
     val updated = new util.HashSet[String](staticConfKeys)
@@ -104,14 +64,14 @@ object SQLConf {
 
   def isStaticConfigKey(key: String): Boolean = staticConfKeys.contains(key)
 
-  def buildConf(key: String): ConfigBuilder = ConfigBuilder(key).onCreate(register)
-
   def buildStaticConf(key: String): ConfigBuilder = {
     ConfigBuilder(key).onCreate { entry =>
-      SQLConf.registerStaticConfigKey(entry.key)
-      SQLConf.register(entry)
+      registerStaticConfigKey(entry.key)
+      register(entry)
     }
   }
+
+  override def buildConf(key: String): ConfigBuilder = super.buildConf(key)
 
   /**
    * Merge all non-static configs to the SQLConf. For example, when the 1st [[SparkSession]] and
@@ -151,7 +111,7 @@ object SQLConf {
     override def initialValue: SQLConf = null
   }
 
-  def withExistingConf[T](conf: SQLConf)(f: => T): T = {
+  def withExistingConf[T](conf: SQLConf)(f: => T): T = Config.withExistingConf(conf) {
     val old = existingConf.get()
     existingConf.set(conf)
     try {
@@ -177,6 +137,8 @@ object SQLConf {
    */
   def setSQLConfGetter(getter: () => SQLConf): Unit = {
     confGetter.set(getter)
+    // TODO(herman) this can be better but it should be fine for now.
+    Config.setConfGetter(getter)
   }
 
   /**
@@ -198,40 +160,28 @@ object SQLConf {
    * run unit tests (that does not involve SparkSession) in serial order.
    */
   def get: SQLConf = {
-    if (Utils.isInRunningSparkTask) {
-      val conf = existingConf.get()
-      if (conf != null) {
-        conf
-      } else {
-        new ReadOnlySQLConf(TaskContext.get())
-      }
+    def isSchedulerEventLoopThread = SparkContext.getActive
+      .flatMap { sc => Option(sc.dagScheduler) }
+      .map(_.eventProcessLoop.eventThread)
+      .exists(_.getId == Thread.currentThread().getId)
+
+    val conf = existingConf.get()
+    if (conf != null) {
+      conf
+    } else if (Utils.isInRunningSparkTask) {
+      new ReadOnlySQLConf(TaskContext.get())
+    } else if (Utils.isTesting && isSchedulerEventLoopThread) {
+      // The DAGScheduler event loop thread does not have an active SparkSession, the `confGetter`
+      // will return `fallbackConf` which is unexpected. Here we require the caller to get the
+      // conf within `withExistingConf`, otherwise fail the query.
+      throw QueryExecutionErrors.cannotGetSQLConfInSchedulerEventLoopThreadError()
     } else {
-      val isSchedulerEventLoopThread = SparkContext.getActive
-        .flatMap { sc => Option(sc.dagScheduler) }
-        .map(_.eventProcessLoop.eventThread)
-        .exists(_.getId == Thread.currentThread().getId)
-      if (isSchedulerEventLoopThread) {
-        // DAGScheduler event loop thread does not have an active SparkSession, the `confGetter`
-        // will return `fallbackConf` which is unexpected. Here we require the caller to get the
-        // conf within `withExistingConf`, otherwise fail the query.
-        val conf = existingConf.get()
-        if (conf != null) {
-          conf
-        } else if (Utils.isTesting) {
-          throw QueryExecutionErrors.cannotGetSQLConfInSchedulerEventLoopThreadError()
-        } else {
-          confGetter.get()()
-        }
-      } else {
-        val conf = existingConf.get()
-        if (conf != null) {
-          conf
-        } else {
-          confGetter.get()()
-        }
-      }
+      confGetter.get()()
     }
   }
+
+  // Register all SqlApiConfigs
+  registerAll(SqlApiConfigs)
 
   val ANALYZER_MAX_ITERATIONS = buildConf("spark.sql.analyzer.maxIterations")
     .internal()
@@ -830,13 +780,7 @@ object SQLConf {
       .checkValue(_ >= 0, "The maximum must not be negative")
       .createWithDefault(100)
 
-  val CASE_SENSITIVE = buildConf("spark.sql.caseSensitive")
-    .internal()
-    .doc("Whether the query analyzer should be case sensitive or not. " +
-      "Default to case insensitive. It is highly discouraged to turn on case sensitive mode.")
-    .version("1.4.0")
-    .booleanConf
-    .createWithDefault(false)
+  val CASE_SENSITIVE = SqlApiConfigs.CASE_SENSITIVE
 
   val CONSTRAINT_PROPAGATION_ENABLED = buildConf("spark.sql.constraintPropagation.enabled")
     .internal()
@@ -2964,31 +2908,11 @@ object SQLConf {
       .checkValues(StoreAssignmentPolicy.values.map(_.toString))
       .createWithDefault(StoreAssignmentPolicy.ANSI.toString)
 
-  val ANSI_ENABLED = buildConf("spark.sql.ansi.enabled")
-    .doc("When true, Spark SQL uses an ANSI compliant dialect instead of being Hive compliant. " +
-      "For example, Spark will throw an exception at runtime instead of returning null results " +
-      "when the inputs to a SQL operator/function are invalid." +
-      "For full details of this dialect, you can find them in the section \"ANSI Compliance\" of " +
-      "Spark's documentation. Some ANSI dialect features may be not from the ANSI SQL " +
-      "standard directly, but their behaviors align with ANSI SQL's style")
-    .version("3.0.0")
-    .booleanConf
-    .createWithDefault(sys.env.get("SPARK_ANSI_SQL_MODE").contains("true"))
+  val ANSI_ENABLED = SqlApiConfigs.ANSI_ENABLED
 
-  val ENFORCE_RESERVED_KEYWORDS = buildConf("spark.sql.ansi.enforceReservedKeywords")
-    .doc(s"When true and '${ANSI_ENABLED.key}' is true, the Spark SQL parser enforces the ANSI " +
-      "reserved keywords and forbids SQL queries that use reserved keywords as alias names " +
-      "and/or identifiers for table, view, function, etc.")
-    .version("3.3.0")
-    .booleanConf
-    .createWithDefault(false)
+  val ENFORCE_RESERVED_KEYWORDS = SqlApiConfigs.ENFORCE_RESERVED_KEYWORDS
 
-  val DOUBLE_QUOTED_IDENTIFIERS = buildConf("spark.sql.ansi.doubleQuotedIdentifiers")
-    .doc(s"When true and '${ANSI_ENABLED.key}' is true, Spark SQL reads literals enclosed in " +
-      "double quoted (\") as identifiers. When false they are read as string literals.")
-    .version("3.4.0")
-    .booleanConf
-    .createWithDefault(false)
+  val DOUBLE_QUOTED_IDENTIFIERS = SqlApiConfigs.DOUBLE_QUOTED_IDENTIFIERS
 
   val ANSI_RELATION_PRECEDENCE = buildConf("spark.sql.ansi.relationPrecedence")
     .doc(s"When true and '${ANSI_ENABLED.key}' is true, JOIN takes precedence over comma when " +
@@ -3285,35 +3209,13 @@ object SQLConf {
       .booleanConf
       .createWithDefault(true)
 
-  val LEGACY_SETOPS_PRECEDENCE_ENABLED =
-    buildConf("spark.sql.legacy.setopsPrecedence.enabled")
-      .internal()
-      .doc("When set to true and the order of evaluation is not specified by parentheses, the " +
-        "set operations are performed from left to right as they appear in the query. When set " +
-        "to false and order of evaluation is not specified by parentheses, INTERSECT operations " +
-        "are performed before any UNION, EXCEPT and MINUS operations.")
-      .version("2.4.0")
-      .booleanConf
-      .createWithDefault(false)
+  val LEGACY_SETOPS_PRECEDENCE_ENABLED = SqlApiConfigs.LEGACY_SETOPS_PRECEDENCE_ENABLED
 
   val LEGACY_EXPONENT_LITERAL_AS_DECIMAL_ENABLED =
-    buildConf("spark.sql.legacy.exponentLiteralAsDecimal.enabled")
-      .internal()
-      .doc("When set to true, a literal with an exponent (e.g. 1E-30) would be parsed " +
-        "as Decimal rather than Double.")
-      .version("3.0.0")
-      .booleanConf
-      .createWithDefault(false)
+    SqlApiConfigs.LEGACY_EXPONENT_LITERAL_AS_DECIMAL_ENABLED
 
   val LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED =
-    buildConf("spark.sql.legacy.allowNegativeScaleOfDecimal")
-      .internal()
-      .doc("When set to true, negative scale of Decimal type is allowed. For example, " +
-        "the type of number 1E10BD under legacy mode is DecimalType(2, -9), but is " +
-        "Decimal(11, 0) in non legacy mode.")
-      .version("3.0.0")
-      .booleanConf
-      .createWithDefault(false)
+    SqlApiConfigs.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED
 
   val LEGACY_BUCKETED_TABLE_SCAN_OUTPUT_ORDERING =
     buildConf("spark.sql.legacy.bucketedTableScan.outputOrdering")
@@ -3390,13 +3292,7 @@ object SQLConf {
       .booleanConf
       .createWithDefault(false)
 
-  val MAX_TO_STRING_FIELDS = buildConf("spark.sql.debug.maxToStringFields")
-    .doc("Maximum number of fields of sequence-like entries can be converted to strings " +
-      "in debug output. Any elements beyond the limit will be dropped and replaced by a" +
-      """ "... N more fields" placeholder.""")
-    .version("3.0.0")
-    .intConf
-    .createWithDefault(25)
+  val MAX_TO_STRING_FIELDS = SqlApiConfigs.MAX_TO_STRING_FIELDS
 
   val MAX_PLAN_STRING_LENGTH = buildConf("spark.sql.maxPlanStringLength")
     .doc("Maximum number of characters to output for a plan string.  If the plan is " +
@@ -3431,19 +3327,7 @@ object SQLConf {
     val TIMESTAMP_NTZ, TIMESTAMP_LTZ = Value
   }
 
-  val TIMESTAMP_TYPE =
-    buildConf("spark.sql.timestampType")
-      .doc("Configures the default timestamp type of Spark SQL, including SQL DDL, Cast clause " +
-        s"and type literal. Setting the configuration as ${TimestampTypes.TIMESTAMP_NTZ} will " +
-        "use TIMESTAMP WITHOUT TIME ZONE as the default type while putting it as " +
-        s"${TimestampTypes.TIMESTAMP_LTZ} will use TIMESTAMP WITH LOCAL TIME ZONE. " +
-        "Before the 3.4.0 release, Spark only supports the TIMESTAMP WITH " +
-        "LOCAL TIME ZONE type.")
-      .version("3.4.0")
-      .stringConf
-      .transform(_.toUpperCase(Locale.ROOT))
-      .checkValues(TimestampTypes.values.map(_.toString))
-      .createWithDefault(TimestampTypes.TIMESTAMP_LTZ.toString)
+  val TIMESTAMP_TYPE = SqlApiConfigs.TIMESTAMP_TYPE
 
   val DATETIME_JAVA8API_ENABLED = buildConf("spark.sql.datetime.java8API.enabled")
     .doc("If the configuration property is set to true, java.time.Instant and " +
@@ -4145,14 +4029,8 @@ object SQLConf {
  *
  * SQLConf is thread-safe (internally synchronized, so safe to be used in multiple threads).
  */
-class SQLConf extends Serializable with Logging {
+class SQLConf extends Config(SQLConf) {
   import SQLConf._
-
-  /** Only low degree of contention is expected for conf, thus NOT using ConcurrentHashMap. */
-  @transient protected[spark] val settings = java.util.Collections.synchronizedMap(
-    new java.util.HashMap[String, String]())
-
-  @transient protected val reader = new ConfigReader(settings)
 
   /** ************************ Spark SQL Params/Hints ******************* */
 
@@ -4840,91 +4718,6 @@ class SQLConf extends Serializable with Logging {
 
   /** ********************** SQLConf functionality methods ************ */
 
-  /** Set Spark SQL configuration properties. */
-  def setConf(props: Properties): Unit = settings.synchronized {
-    props.asScala.foreach { case (k, v) => setConfString(k, v) }
-  }
-
-  /** Set the given Spark SQL configuration property using a `string` value. */
-  def setConfString(key: String, value: String): Unit = {
-    require(key != null, "key cannot be null")
-    require(value != null, s"value cannot be null for key: $key")
-    val entry = getConfigEntry(key)
-    if (entry != null) {
-      // Only verify configs in the SQLConf object
-      entry.valueConverter(value)
-    }
-    setConfWithCheck(key, value)
-  }
-
-  /** Set the given Spark SQL configuration property. */
-  def setConf[T](entry: ConfigEntry[T], value: T): Unit = {
-    require(entry != null, "entry cannot be null")
-    require(value != null, s"value cannot be null for key: ${entry.key}")
-    require(containsConfigEntry(entry), s"$entry is not registered")
-    setConfWithCheck(entry.key, entry.stringConverter(value))
-  }
-
-  /** Return the value of Spark SQL configuration property for the given key. */
-  @throws[NoSuchElementException]("if key is not set")
-  def getConfString(key: String): String = {
-    Option(settings.get(key)).
-      orElse {
-        // Try to use the default value
-        Option(getConfigEntry(key)).map { e => e.stringConverter(e.readFrom(reader)) }
-      }.
-      getOrElse(throw QueryExecutionErrors.noSuchElementExceptionError(key))
-  }
-
-  /**
-   * Return the value of Spark SQL configuration property for the given key. If the key is not set
-   * yet, return `defaultValue`. This is useful when `defaultValue` in ConfigEntry is not the
-   * desired one.
-   */
-  def getConf[T](entry: ConfigEntry[T], defaultValue: T): T = {
-    require(containsConfigEntry(entry), s"$entry is not registered")
-    Option(settings.get(entry.key)).map(entry.valueConverter).getOrElse(defaultValue)
-  }
-
-  /**
-   * Return the value of Spark SQL configuration property for the given key. If the key is not set
-   * yet, return `defaultValue` in [[ConfigEntry]].
-   */
-  def getConf[T](entry: ConfigEntry[T]): T = {
-    require(containsConfigEntry(entry), s"$entry is not registered")
-    entry.readFrom(reader)
-  }
-
-  /**
-   * Return the value of an optional Spark SQL configuration property for the given key. If the key
-   * is not set yet, returns None.
-   */
-  def getConf[T](entry: OptionalConfigEntry[T]): Option[T] = {
-    require(containsConfigEntry(entry), s"$entry is not registered")
-    entry.readFrom(reader)
-  }
-
-  /**
-   * Return the `string` value of Spark SQL configuration property for the given key. If the key is
-   * not set yet, return `defaultValue`.
-   */
-  def getConfString(key: String, defaultValue: String): String = {
-    Option(settings.get(key)).getOrElse {
-      // If the key is not set, need to check whether the config entry is registered and is
-      // a fallback conf, so that we can check its parent.
-      getConfigEntry(key) match {
-        case e: FallbackConfigEntry[_] =>
-          getConfString(e.fallback.key, defaultValue)
-        case e: ConfigEntry[_] if defaultValue != null && defaultValue != ConfigEntry.UNDEFINED =>
-          // Only verify configs in the SQLConf object
-          e.valueConverter(defaultValue)
-          defaultValue
-        case _ =>
-          defaultValue
-      }
-    }
-  }
-
   private var definedConfsLoaded = false
   /**
    * Init [[StaticSQLConf]] and [[org.apache.spark.sql.hive.HiveUtils]] so that all the defined
@@ -4947,22 +4740,12 @@ class SQLConf extends Serializable with Logging {
   }
 
   /**
-   * Return all the configuration properties that have been set (i.e. not the default).
-   * This creates a new copy of the config properties in the form of a Map.
-   */
-  def getAllConfs: immutable.Map[String, String] =
-    settings.synchronized { settings.asScala.toMap }
-
-  /**
    * Return all the configuration definitions that have been defined in [[SQLConf]]. Each
    * definition contains key, defaultValue and doc.
    */
-  def getAllDefinedConfs: Seq[(String, String, String, String)] = {
+  override def getAllDefinedConfs: Seq[(String, String, String, String)] = {
     loadDefinedConfs()
-    getConfigEntries().asScala.filter(_.isPublic).map { entry =>
-      val displayValue = Option(getConfString(entry.key, null)).getOrElse(entry.defaultValueString)
-      (entry.key, displayValue, entry.doc, entry.version)
-    }.toSeq
+    super.getAllDefinedConfs
   }
 
   /**
@@ -4981,53 +4764,6 @@ class SQLConf extends Serializable with Logging {
       SECRET_REDACTION_PATTERN.readFrom(reader))
 
     regexes.foldLeft(options) { case (opts, r) => Utils.redact(Some(r), opts) }
-  }
-
-  /**
-   * Return whether a given key is set in this [[SQLConf]].
-   */
-  def contains(key: String): Boolean = {
-    settings.containsKey(key)
-  }
-
-  /**
-   * Logs a warning message if the given config key is deprecated.
-   */
-  private def logDeprecationWarning(key: String): Unit = {
-    SQLConf.deprecatedSQLConfigs.get(key).foreach {
-      case DeprecatedConfig(configName, version, comment) =>
-        logWarning(
-          s"The SQL config '$configName' has been deprecated in Spark v$version " +
-          s"and may be removed in the future. $comment")
-    }
-  }
-
-  private def requireDefaultValueOfRemovedConf(key: String, value: String): Unit = {
-    SQLConf.removedSQLConfigs.get(key).foreach {
-      case RemovedConfig(configName, version, defaultValue, comment) =>
-        if (value != defaultValue) {
-          throw QueryCompilationErrors.configRemovedInVersionError(configName, version, comment)
-        }
-    }
-  }
-
-  protected def setConfWithCheck(key: String, value: String): Unit = {
-    logDeprecationWarning(key)
-    requireDefaultValueOfRemovedConf(key, value)
-    settings.put(key, value)
-  }
-
-  def unsetConf(key: String): Unit = {
-    logDeprecationWarning(key)
-    settings.remove(key)
-  }
-
-  def unsetConf(entry: ConfigEntry[_]): Unit = {
-    unsetConf(entry.key)
-  }
-
-  def clear(): Unit = {
-    settings.clear()
   }
 
   override def clone(): SQLConf = {

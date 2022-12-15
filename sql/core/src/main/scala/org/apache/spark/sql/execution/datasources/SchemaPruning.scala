@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{Filter, LeafNode, LogicalPla
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, DataTypeUtils, MapType, StructType}
 import org.apache.spark.sql.util.SchemaUtils._
 
 /**
@@ -94,7 +94,8 @@ object SchemaPruning extends Rule[LogicalPlan] {
         countLeaves(metadataSchema) > countLeaves(prunedMetadataSchema)) {
         val prunedRelation = leafNodeBuilder(prunedDataSchema, prunedMetadataSchema)
         val projectionOverSchema = ProjectionOverSchema(
-          prunedDataSchema.merge(prunedMetadataSchema), AttributeSet(relation.output))
+          DataTypeUtils.mergeStructs(prunedDataSchema, prunedMetadataSchema),
+          AttributeSet(relation.output))
         Some(buildNewProjection(projects, normalizedProjects, normalizedFilters,
           prunedRelation, projectionOverSchema))
       } else {
@@ -170,7 +171,7 @@ object SchemaPruning extends Rule[LogicalPlan] {
       outputRelation: LogicalRelation,
       prunedBaseRelation: HadoopFsRelation,
       prunedMetadataSchema: StructType) = {
-    val finalSchema = prunedBaseRelation.schema.merge(prunedMetadataSchema)
+    val finalSchema = DataTypeUtils.mergeStructs(prunedBaseRelation.schema, prunedMetadataSchema)
     val prunedOutput = getPrunedOutput(outputRelation.output, finalSchema)
     outputRelation.copy(relation = prunedBaseRelation, output = prunedOutput)
   }
@@ -182,8 +183,7 @@ object SchemaPruning extends Rule[LogicalPlan] {
     // We need to update the data type of the output attributes to use the pruned ones.
     // so that references to the original relation's output are not broken
     val nameAttributeMap = output.map(att => (att.name, att)).toMap
-    requiredSchema
-      .toAttributes
+    DataTypeUtils.toAttributes(requiredSchema)
       .map {
         case att if nameAttributeMap.contains(att.name) =>
           nameAttributeMap(att.name).withDataType(att.dataType)

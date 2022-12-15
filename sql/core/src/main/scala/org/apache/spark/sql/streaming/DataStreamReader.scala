@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.datasources.json.JsonUtils.checkJsonSchema
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Utils, FileDataSourceV2}
 import org.apache.spark.sql.execution.streaming.StreamingRelation
 import org.apache.spark.sql.sources.StreamSourceProvider
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
@@ -184,7 +184,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
               sparkSession,
               StreamingRelationV2(
                 Some(provider), source, table, dsOptions,
-                table.schema.toAttributes, None, None, v1Relation))
+                DataTypeUtils.toAttributes(table.schema), None, None, v1Relation))
 
           // fallback to v1
           // TODO (SPARK-27483): we should move this fallback logic to an analyzer rule.

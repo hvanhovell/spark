@@ -28,11 +28,12 @@ import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.LeafExecNode
 import org.apache.spark.sql.execution.datasources.{DataSource, FileFormat}
+import org.apache.spark.sql.types.DataTypeUtils
 
 object StreamingRelation {
   def apply(dataSource: DataSource): StreamingRelation = {
-    StreamingRelation(
-      dataSource, dataSource.sourceInfo.name, dataSource.sourceInfo.schema.toAttributes)
+    val info = dataSource.sourceInfo
+    StreamingRelation(dataSource, info.name, DataTypeUtils.toAttributes(info.schema))
   }
 }
 
@@ -126,13 +127,16 @@ case class StreamingRelationExec(
 
 object StreamingExecutionRelation {
   def apply(source: Source, session: SparkSession): StreamingExecutionRelation = {
-    StreamingExecutionRelation(source, source.schema.toAttributes, None)(session)
+    StreamingExecutionRelation(source, DataTypeUtils.toAttributes(source.schema), None)(session)
   }
 
   def apply(
       source: Source,
       session: SparkSession,
       catalogTable: CatalogTable): StreamingExecutionRelation = {
-    StreamingExecutionRelation(source, source.schema.toAttributes, Some(catalogTable))(session)
+    StreamingExecutionRelation(
+      source,
+      DataTypeUtils.toAttributes(source.schema),
+      Some(catalogTable))(session)
   }
 }

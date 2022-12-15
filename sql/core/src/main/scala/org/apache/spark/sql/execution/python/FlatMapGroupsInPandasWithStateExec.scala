@@ -31,7 +31,7 @@ import org.apache.spark.sql.execution.streaming.GroupStateImpl.NO_TIMESTAMP
 import org.apache.spark.sql.execution.streaming.state.FlatMapGroupsWithStateExecHelper.StateData
 import org.apache.spark.sql.execution.streaming.state.StateStore
 import org.apache.spark.sql.streaming.{GroupStateTimeout, OutputMode}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.util.CompletionIterator
 
@@ -169,7 +169,7 @@ case class FlatMapGroupsInPandasWithStateExec(
         chainedFunc,
         PythonEvalType.SQL_GROUPED_MAP_PANDAS_UDF_WITH_STATE,
         Array(argOffsets),
-        StructType.fromAttributes(dedupAttributesWithNull),
+        DataTypeUtils.fromAttributes(dedupAttributesWithNull),
         sessionLocalTimeZone,
         pythonRunnerConf,
         stateEncoder.asInstanceOf[ExpressionEncoder[Row]],

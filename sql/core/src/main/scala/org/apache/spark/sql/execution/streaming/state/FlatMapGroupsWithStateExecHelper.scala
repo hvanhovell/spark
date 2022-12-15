@@ -110,7 +110,9 @@ object FlatMapGroupsWithStateExecHelper {
 
     private lazy val stateSerializerFunc = ObjectOperator.serializeObjectToRow(stateSerializerExprs)
     private lazy val stateDeserializerFunc = {
-      ObjectOperator.deserializeRowToObject(stateDeserializerExpr, stateSchema.toAttributes)
+      ObjectOperator.deserializeRowToObject(
+        stateDeserializerExpr,
+        DataTypeUtils.toAttributes(stateSchema))
     }
     private lazy val stateDataForGets = StateData()
 
@@ -154,7 +156,7 @@ object FlatMapGroupsWithStateExecHelper {
       AttributeReference("timeoutTimestamp", dataType = IntegerType, nullable = false)()
 
     private val stateAttributes: Seq[Attribute] = {
-      val encSchemaAttribs = stateEncoder.schema.toAttributes
+      val encSchemaAttribs = DataTypeUtils.toAttributes(stateEncoder.schema)
       if (shouldStoreTimestamp) encSchemaAttribs :+ timestampTimeoutAttribute else encSchemaAttribs
     }
 

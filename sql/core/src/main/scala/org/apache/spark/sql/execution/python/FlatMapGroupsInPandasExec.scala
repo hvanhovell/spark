@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.physical.{AllTuples, ClusteredDistribution, Distribution, Partitioning}
 import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.python.PandasGroupUtils._
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.DataTypeUtils
 import org.apache.spark.sql.util.ArrowUtils
 
 
@@ -87,7 +87,7 @@ case class FlatMapGroupsInPandasExec(
         chainedFunc,
         PythonEvalType.SQL_GROUPED_MAP_PANDAS_UDF,
         Array(argOffsets),
-        StructType.fromAttributes(dedupAttributes),
+        DataTypeUtils.fromAttributes(dedupAttributes),
         sessionLocalTimeZone,
         pythonRunnerConf,
         pythonMetrics)

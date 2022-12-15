@@ -36,7 +36,7 @@ import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, Par
 import org.apache.spark.sql.connector.read.streaming.{ContinuousStream, MicroBatchStream, Offset => OffsetV2, SparkDataStream}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.connector.SimpleTableProvider
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 object MemoryStream {
@@ -55,7 +55,7 @@ object MemoryStream {
  */
 abstract class MemoryStreamBase[A : Encoder](sqlContext: SQLContext) extends SparkDataStream {
   val encoder = encoderFor[A]
-  protected val attributes = encoder.schema.toAttributes
+  protected val attributes = DataTypeUtils.toAttributes(encoder.schema)
 
   protected lazy val toRow: ExpressionEncoder.Serializer[A] = encoder.createSerializer()
 

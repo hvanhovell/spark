@@ -730,7 +730,8 @@ object DataSourceStrategy
       output: Seq[Attribute],
       rdd: RDD[Row]): RDD[InternalRow] = {
     if (relation.needConversion) {
-      val toRow = RowEncoder(StructType.fromAttributes(output), lenient = true).createSerializer()
+      val encoder = RowEncoder(DataTypeUtils.fromAttributes(output), lenient = true)
+      val toRow = encoder.createSerializer()
       rdd.mapPartitions { iterator =>
         iterator.map(toRow)
       }

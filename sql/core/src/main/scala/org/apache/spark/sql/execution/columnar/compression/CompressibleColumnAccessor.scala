@@ -18,11 +18,11 @@
 package org.apache.spark.sql.execution.columnar.compression
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.types.PhysicalAtomicType
 import org.apache.spark.sql.execution.columnar.{ColumnAccessor, NativeColumnAccessor}
 import org.apache.spark.sql.execution.vectorized.WritableColumnVector
-import org.apache.spark.sql.types.AtomicType
 
-private[columnar] trait CompressibleColumnAccessor[T <: AtomicType] extends ColumnAccessor {
+private[columnar] trait CompressibleColumnAccessor[T <: PhysicalAtomicType] extends ColumnAccessor {
   this: NativeColumnAccessor[T] =>
 
   private var decoder: Decoder[T] = _

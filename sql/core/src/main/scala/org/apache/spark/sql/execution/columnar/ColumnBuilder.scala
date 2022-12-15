@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.columnar
 import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.types.PhysicalAtomicType
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.columnar.ColumnBuilder._
 import org.apache.spark.sql.execution.columnar.compression.{AllCompressionSchemes, CompressibleColumnBuilder}
@@ -95,7 +96,7 @@ private[columnar] abstract class ComplexColumnBuilder[JvmType](
   extends BasicColumnBuilder[JvmType](columnStats, columnType)
   with NullableColumnBuilder
 
-private[columnar] abstract class NativeColumnBuilder[T <: AtomicType](
+private[columnar] abstract class NativeColumnBuilder[T <: PhysicalAtomicType](
     override val columnStats: ColumnStats,
     override val columnType: NativeColumnType[T])
   extends BasicColumnBuilder[T#InternalType](columnStats, columnType)

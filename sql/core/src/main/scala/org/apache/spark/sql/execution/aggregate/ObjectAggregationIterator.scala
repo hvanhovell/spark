@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.UnsafeKVExternalSorter
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DataTypeUtils._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.unsafe.KVIterator
 
@@ -189,8 +190,8 @@ class ObjectAggregationIterator(
           .sortedIterator()
         sortBasedAggregationStore = new SortBasedAggregator(
           sortIteratorFromHashMap,
-          StructType.fromAttributes(originalInputAttributes),
-          StructType.fromAttributes(groupingAttributes),
+          fromAttributes(originalInputAttributes),
+          fromAttributes(groupingAttributes),
           processRow,
           mergeAggregationBuffers,
           createNewAggregationBuffer())

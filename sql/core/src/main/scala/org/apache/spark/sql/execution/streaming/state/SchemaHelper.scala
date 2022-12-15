@@ -22,7 +22,7 @@ import java.io.StringReader
 import org.apache.hadoop.fs.{FSDataInputStream, FSDataOutputStream}
 
 import org.apache.spark.sql.execution.streaming.MetadataVersionUtil
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.util.Utils
 
 /**
@@ -49,7 +49,7 @@ object SchemaHelper {
     def read(inputStream: FSDataInputStream): (StructType, StructType) = {
       val keySchemaStr = inputStream.readUTF()
       val valueSchemaStr = inputStream.readUTF()
-      (StructType.fromString(keySchemaStr), StructType.fromString(valueSchemaStr))
+      (DataTypeUtils.fromString(keySchemaStr), DataTypeUtils.fromString(valueSchemaStr))
     }
   }
 
@@ -64,7 +64,7 @@ object SchemaHelper {
       val numValueChunks = inputStream.readInt()
       (0 until numValueChunks).foreach(_ => buf.append(inputStream.readUTF()))
       val valueSchemaStr = buf.toString()
-      (StructType.fromString(keySchemaStr), StructType.fromString(valueSchemaStr))
+      (DataTypeUtils.fromString(keySchemaStr), DataTypeUtils.fromString(valueSchemaStr))
     }
   }
 

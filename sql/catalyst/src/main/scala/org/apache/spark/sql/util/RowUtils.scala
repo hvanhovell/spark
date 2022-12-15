@@ -37,7 +37,7 @@ import org.apache.spark.unsafe.types.CalendarInterval
 /**
  * Utility class for working with Rows.
  */
-class RowUtils {
+object RowUtils {
   /**
    * Create the compact JSON representation of a row.
    * @since 3.0

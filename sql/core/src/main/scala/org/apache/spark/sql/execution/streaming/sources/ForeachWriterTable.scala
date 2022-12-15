@@ -29,7 +29,7 @@ import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactor
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.python.PythonForeachWriter
 import org.apache.spark.sql.internal.connector.SupportsStreamingUpdateAsAppend
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 
 /**
  * A write-only table for forwarding data into the specified [[ForeachWriter]].
@@ -81,7 +81,7 @@ class ForeachWrite[T](
         val rowConverter: InternalRow => T = converter match {
           case Left(enc) =>
             val boundEnc = enc.resolveAndBind(
-              inputSchema.toAttributes,
+              DataTypeUtils.toAttributes(inputSchema),
               SparkSession.getActiveSession.get.sessionState.analyzer)
             boundEnc.createDeserializer()
           case Right(func) =>

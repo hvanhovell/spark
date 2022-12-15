@@ -35,7 +35,7 @@ import org.apache.spark.sql.execution.datasources.{CreateTable => CreateTableV1,
 import org.apache.spark.sql.execution.datasources.v2.FileDataSourceV2
 import org.apache.spark.sql.internal.{HiveSerDe, SQLConf}
 import org.apache.spark.sql.internal.connector.V1Function
-import org.apache.spark.sql.types.{MetadataBuilder, StructField, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, MetadataBuilder, StructField, StructType}
 
 /**
  * Converts resolved v2 commands to v1 if the catalog is the session catalog. Since the v2 commands
@@ -88,7 +88,7 @@ class ResolveSessionCatalog(val catalogManager: CatalogManager)
       a.comment.map(c => builder.putString("comment", c))
       val colName = a.column.name(0)
       val dataType = a.dataType.getOrElse {
-        table.schema.findNestedField(Seq(colName), resolver = conf.resolver)
+        DataTypeUtils.findNestedField(table.schema, Seq(colName), resolver = conf.resolver)
           .map(_._2.dataType)
           .getOrElse {
             throw QueryCompilationErrors.alterColumnCannotFindColumnInV1TableError(

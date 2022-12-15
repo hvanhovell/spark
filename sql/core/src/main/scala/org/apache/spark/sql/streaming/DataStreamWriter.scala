@@ -40,6 +40,7 @@ import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Utils, FileDataSourceV2}
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.sources._
+import org.apache.spark.sql.types.DataTypeUtils
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.util.Utils
 
@@ -346,7 +347,9 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
         throw QueryCompilationErrors.queryNameNotSpecifiedForMemorySinkError()
       }
       val sink = new MemorySink()
-      val resultDf = Dataset.ofRows(df.sparkSession, new MemoryPlan(sink, df.schema.toAttributes))
+      val resultDf = Dataset.ofRows(
+        df.sparkSession,
+        new MemoryPlan(sink, DataTypeUtils.toAttributes(df.schema)))
       val recoverFromCheckpoint = outputMode == OutputMode.Complete()
       val query = startQuery(sink, extraOptions, recoverFromCheckpoint = recoverFromCheckpoint,
         catalogTable = catalogTable)

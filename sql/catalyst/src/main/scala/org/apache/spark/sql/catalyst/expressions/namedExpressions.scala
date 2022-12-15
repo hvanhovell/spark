@@ -116,7 +116,6 @@ abstract class Attribute extends LeafExpression with NamedExpression with NullIn
 
   override def toAttribute: Attribute = this
   def newInstance(): Attribute
-
 }
 
 /**

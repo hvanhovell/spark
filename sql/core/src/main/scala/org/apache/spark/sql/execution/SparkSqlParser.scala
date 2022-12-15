@@ -31,7 +31,6 @@ import org.apache.spark.sql.catalyst.analysis.{GlobalTempView, LocalTempView, Pe
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.parser._
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util.DateTimeConstants
 import org.apache.spark.sql.errors.QueryParsingErrors
@@ -39,12 +38,14 @@ import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.internal.{HiveSerDe, SQLConf, VariableSubstitution}
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
+import org.apache.spark.sql.parser.antlr._
+import org.apache.spark.sql.parser.antlr.SqlBaseParser._
 
 /**
  * Concrete parser for Spark SQL statements.
  */
-class SparkSqlParser extends AbstractSqlParser {
-  val astBuilder = new SparkSqlAstBuilder()
+class SparkSqlParser extends CatalystSqlParser {
+  override protected val builder = new SparkSqlAstBuilder()
 
   private val substitutor = new VariableSubstitution()
 
@@ -57,7 +58,7 @@ class SparkSqlParser extends AbstractSqlParser {
  * Builder that converts an ANTLR ParseTree into a LogicalPlan/Expression/TableIdentifier.
  */
 class SparkSqlAstBuilder extends AstBuilder {
-  import org.apache.spark.sql.catalyst.parser.ParserUtils._
+  import org.apache.spark.sql.parser.ParserUtils._
   import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 
   private val configKeyValueDef = """([a-zA-Z_\d\\.:]+)\s*=([^;]*);*""".r

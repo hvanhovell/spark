@@ -96,7 +96,7 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
 
   override def init(configuration: Configuration): WriteContext = {
     val schemaString = configuration.get(ParquetWriteSupport.SPARK_ROW_SCHEMA)
-    this.schema = StructType.fromString(schemaString)
+    this.schema = DataTypeUtils.fromString(schemaString)
     this.writeLegacyParquetFormat = {
       // `SQLConf.PARQUET_WRITE_LEGACY_FORMAT` should always be explicitly set in ParquetRelation
       assert(configuration.get(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key) != null)

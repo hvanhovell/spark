@@ -222,7 +222,8 @@ class OrcFileFormat
           val iter = new RecordReaderIterator[OrcStruct](orcRecordReader)
           Option(TaskContext.get()).foreach(_.addTaskCompletionListener[Unit](_ => iter.close()))
 
-          val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
+          val fullSchema = DataTypeUtils.toAttributes(requiredSchema) ++
+            DataTypeUtils.toAttributes(partitionSchema)
           val unsafeProjection = GenerateUnsafeProjection.generate(fullSchema, fullSchema)
           val deserializer = new OrcDeserializer(requiredSchema, requestedColIds)
 

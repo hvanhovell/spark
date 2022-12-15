@@ -924,8 +924,8 @@ object DDLUtils extends Logging {
     HiveTableRelation(
       table,
       // Hive table columns are always nullable.
-      table.dataSchema.asNullable.toAttributes,
-      table.partitionSchema.asNullable.toAttributes)
+      DataTypeUtils.toAttributes(table.dataSchema.asNullable),
+      DataTypeUtils.toAttributes(table.partitionSchema.asNullable))
   }
 
   /**

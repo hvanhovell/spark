@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.command.LeafRunnableCommand
 import org.apache.spark.sql.sources.CreatableRelationProvider
+import org.apache.spark.sql.types.DataTypeUtils
 
 /**
  * Saves the results of `query` in to a data source.
@@ -47,7 +48,8 @@ case class SaveIntoDataSourceCommand(
       sparkSession.sqlContext, mode, options, Dataset.ofRows(sparkSession, query))
 
     try {
-      val logicalRelation = LogicalRelation(relation, relation.schema.toAttributes, None, false)
+      val attributes = DataTypeUtils.toAttributes(relation.schema)
+      val logicalRelation = LogicalRelation(relation, attributes, None, false)
       sparkSession.sharedState.cacheManager.recacheByPlan(sparkSession, logicalRelation)
     } catch {
       case NonFatal(_) =>

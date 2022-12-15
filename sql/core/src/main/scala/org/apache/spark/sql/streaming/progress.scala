@@ -32,9 +32,10 @@ import org.json4s.jackson.JsonMethods._
 
 import org.apache.spark.annotation.Evolving
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
+import org.apache.spark.sql.internal.GenericRowWithSchema
 import org.apache.spark.sql.streaming.SafeJsonSerializer.{safeDoubleToJValue, safeMapToJValue}
 import org.apache.spark.sql.streaming.SinkProgress.DEFAULT_NUM_OUTPUT_ROWS
+import org.apache.spark.sql.util.RowUtils
 
 /**
  * Information about updates made to stateful operators in a [[StreamingQuery]] during a trigger.
@@ -171,7 +172,7 @@ class StreamingQueryProgress private[sql](
     ("stateOperators" -> JArray(stateOperators.map(_.jsonValue).toList)) ~
     ("sources" -> JArray(sources.map(_.jsonValue).toList)) ~
     ("sink" -> sink.jsonValue) ~
-    ("observedMetrics" -> safeMapToJValue[Row](observedMetrics, row => row.jsonValue))
+    ("observedMetrics" -> safeMapToJValue[Row](observedMetrics, RowUtils.jsonValue))
   }
 }
 

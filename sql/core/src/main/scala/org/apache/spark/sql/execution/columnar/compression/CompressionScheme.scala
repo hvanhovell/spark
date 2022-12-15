@@ -20,12 +20,12 @@ package org.apache.spark.sql.execution.columnar.compression
 import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.types.PhysicalAtomicType
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.columnar.{ColumnType, NativeColumnType}
 import org.apache.spark.sql.execution.vectorized.WritableColumnVector
-import org.apache.spark.sql.types.AtomicType
 
-private[columnar] trait Encoder[T <: AtomicType] {
+private[columnar] trait Encoder[T <: PhysicalAtomicType] {
   def gatherCompressibilityStats(row: InternalRow, ordinal: Int): Unit = {}
 
   def compressedSize: Int
@@ -39,7 +39,7 @@ private[columnar] trait Encoder[T <: AtomicType] {
   def compress(from: ByteBuffer, to: ByteBuffer): ByteBuffer
 }
 
-private[columnar] trait Decoder[T <: AtomicType] {
+private[columnar] trait Decoder[T <: PhysicalAtomicType] {
   def next(row: InternalRow, ordinal: Int): Unit
 
   def hasNext: Boolean
@@ -52,9 +52,11 @@ private[columnar] trait CompressionScheme {
 
   def supports(columnType: ColumnType[_]): Boolean
 
-  def encoder[T <: AtomicType](columnType: NativeColumnType[T]): Encoder[T]
+  def encoder[T <: PhysicalAtomicType](columnType: NativeColumnType[T]): Encoder[T]
 
-  def decoder[T <: AtomicType](buffer: ByteBuffer, columnType: NativeColumnType[T]): Decoder[T]
+  def decoder[T <: PhysicalAtomicType](
+      buffer: ByteBuffer,
+      columnType: NativeColumnType[T]): Decoder[T]
 }
 
 private[columnar] trait WithCompressionSchemes {

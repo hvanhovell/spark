@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateFunction, TypedImperativeAggregate}
 import org.apache.spark.sql.execution.UnsafeKVExternalSorter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.DataTypeUtils.fromAttributes
 
 /**
  * An aggregation map that supports using safe `SpecificInternalRow`s aggregation buffers, so that
@@ -73,8 +73,8 @@ class ObjectAggregationMap() {
       aggregateFunctions: Seq[AggregateFunction]): UnsafeKVExternalSorter = {
     val aggBufferAttributes = aggregateFunctions.flatMap(_.aggBufferAttributes)
     val sorter = new UnsafeKVExternalSorter(
-      StructType.fromAttributes(groupingAttributes),
-      StructType.fromAttributes(aggBufferAttributes),
+      fromAttributes(groupingAttributes),
+      fromAttributes(aggBufferAttributes),
       SparkEnv.get.blockManager,
       SparkEnv.get.serializerManager,
       TaskContext.get().taskMemoryManager().pageSizeBytes,

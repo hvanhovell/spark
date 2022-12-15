@@ -83,7 +83,7 @@ class ParquetReadSupport(
     catalystRequestedSchema = {
       val schemaString = conf.get(ParquetReadSupport.SPARK_ROW_REQUESTED_SCHEMA)
       assert(schemaString != null, "Parquet requested schema not set.")
-      StructType.fromString(schemaString)
+      DataTypeUtils.fromString(schemaString)
     }
 
     val parquetRequestedSchema = ParquetReadSupport.getRequestedSchema(

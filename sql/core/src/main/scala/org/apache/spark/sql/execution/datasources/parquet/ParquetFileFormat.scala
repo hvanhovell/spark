@@ -315,7 +315,8 @@ class ParquetFileFormat
         try {
           readerWithRowIndexes.initialize(split, hadoopAttemptContext)
 
-          val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
+          val fullSchema = DataTypeUtils.toAttributes(requiredSchema) ++
+            DataTypeUtils.toAttributes(partitionSchema)
           val unsafeProjection = GenerateUnsafeProjection.generate(fullSchema, fullSchema)
 
           if (partitionSchema.length == 0) {
@@ -401,7 +402,7 @@ object ParquetFileFormat extends Logging {
     }
 
     finalSchemas.reduceOption { (left, right) =>
-      try left.merge(right) catch { case e: Throwable =>
+      try DataTypeUtils.mergeStructs(left, right) catch { case e: Throwable =>
         throw QueryExecutionErrors.failedToMergeIncompatibleSchemasError(left, right, e)
       }
     }

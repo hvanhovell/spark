@@ -37,7 +37,7 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.execution.{ExplainMode, QueryExecution}
 import org.apache.spark.sql.execution.arrow.ArrowConverters
 import org.apache.spark.sql.execution.python.EvaluatePython
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{GenericRowWithSchema, SQLConf}
 import org.apache.spark.sql.types.{DataType, StructType}
 
 private[sql] object PythonSQLUtils extends Logging {

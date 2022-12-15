@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.util.toPrettySQL
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 import org.apache.spark.sql.streaming.OutputMode
-import org.apache.spark.sql.types.{NumericType, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, NumericType, StructType}
 
 /**
  * A set of methods for aggregations on a `DataFrame`, created by [[Dataset#groupBy groupBy]],
@@ -573,7 +573,7 @@ class RelationalGroupedDataset protected[sql](
     val project = df.sparkSession.sessionState.executePlan(
       Project(groupingNamedExpressions ++ child.output, child)).analyzed
     val groupingAttributes = project.output.take(groupingNamedExpressions.length)
-    val output = expr.dataType.asInstanceOf[StructType].toAttributes
+    val output = DataTypeUtils.toAttributes(expr.dataType.asInstanceOf[StructType])
     val plan = FlatMapGroupsInPandas(groupingAttributes, expr, output, project)
 
     Dataset.ofRows(df.sparkSession, plan)
@@ -618,7 +618,7 @@ class RelationalGroupedDataset protected[sql](
     val right = r.df.sparkSession.sessionState.executePlan(
       Project(rightGroupingNamedExpressions ++ rightChild.output, rightChild)).analyzed
 
-    val output = expr.dataType.asInstanceOf[StructType].toAttributes
+    val output = DataTypeUtils.toAttributes(expr.dataType.asInstanceOf[StructType])
     val plan = FlatMapCoGroupsInPandas(
       leftGroupingNamedExpressions.length, rightGroupingNamedExpressions.length,
       expr, output, left, right)
@@ -656,7 +656,7 @@ class RelationalGroupedDataset protected[sql](
       case other => Alias(other, other.toString)()
     }
     val groupingAttrs = groupingNamedExpressions.map(_.toAttribute)
-    val outputAttrs = outputStructType.toAttributes
+    val outputAttrs = DataTypeUtils.toAttributes(outputStructType)
     val plan = FlatMapGroupsInPandasWithState(
       func,
       groupingAttrs,

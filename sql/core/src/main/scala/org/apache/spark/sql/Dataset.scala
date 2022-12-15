@@ -42,7 +42,6 @@ import org.apache.spark.sql.catalyst.encoders._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.json.{JacksonGenerator, JSONOptions}
 import org.apache.spark.sql.catalyst.optimizer.CombineUnions
-import org.apache.spark.sql.catalyst.parser.{ParseException, ParserUtils}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
@@ -57,6 +56,7 @@ import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, Data
 import org.apache.spark.sql.execution.python.EvaluatePython
 import org.apache.spark.sql.execution.stat.StatFunctions
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.parser.{ParseException, ParserUtils}
 import org.apache.spark.sql.streaming.DataStreamWriter
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.SchemaUtils
@@ -3290,7 +3290,7 @@ class Dataset[T] private[sql](
       sparkSession,
       MapInPandas(
         func,
-        func.dataType.asInstanceOf[StructType].toAttributes,
+        DataTypeUtils.toAttributes(func.dataType.asInstanceOf[StructType]),
         logicalPlan))
   }
 
@@ -3304,7 +3304,7 @@ class Dataset[T] private[sql](
       sparkSession,
       PythonMapInArrow(
         func,
-        func.dataType.asInstanceOf[StructType].toAttributes,
+        DataTypeUtils.toAttributes(func.dataType.asInstanceOf[StructType]),
         logicalPlan))
   }
 

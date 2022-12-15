@@ -23,6 +23,7 @@ import scala.annotation.tailrec
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{UnsafeArrayData, UnsafeMapData, UnsafeRow}
+import org.apache.spark.sql.catalyst.types.PhysicalAtomicType
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.columnar.compression.CompressibleColumnAccessor
 import org.apache.spark.sql.execution.vectorized.WritableColumnVector
@@ -71,7 +72,7 @@ private[columnar] class NullColumnAccessor(buffer: ByteBuffer)
   extends BasicColumnAccessor[Any](buffer, NULL)
   with NullableColumnAccessor
 
-private[columnar] abstract class NativeColumnAccessor[T <: AtomicType](
+private[columnar] abstract class NativeColumnAccessor[T <: PhysicalAtomicType](
     override protected val buffer: ByteBuffer,
     override protected val columnType: NativeColumnType[T])
   extends BasicColumnAccessor(buffer, columnType)

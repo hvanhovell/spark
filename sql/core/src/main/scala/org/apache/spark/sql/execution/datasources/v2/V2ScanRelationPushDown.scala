@@ -31,7 +31,7 @@ import org.apache.spark.sql.connector.expressions.filter.Predicate
 import org.apache.spark.sql.connector.read.{Scan, ScanBuilder, SupportsPushDownAggregates, SupportsPushDownFilters, V1Scan}
 import org.apache.spark.sql.execution.datasources.DataSourceStrategy
 import org.apache.spark.sql.sources
-import org.apache.spark.sql.types.{DataType, DecimalType, IntegerType, StructType}
+import org.apache.spark.sql.types.{DataType, DataTypeUtils, DecimalType, IntegerType, StructType}
 import org.apache.spark.sql.util.SchemaUtils._
 
 object V2ScanRelationPushDown extends Rule[LogicalPlan] with PredicateHelper {
@@ -330,7 +330,7 @@ object V2ScanRelationPushDown extends Rule[LogicalPlan] with PredicateHelper {
       // DataSourceV2ScanRelation output columns. All the other columns are not
       // included in the output.
       val scan = holder.builder.build()
-      val realOutput = scan.readSchema().toAttributes
+      val realOutput = DataTypeUtils.toAttributes(scan.readSchema())
       assert(realOutput.length == holder.output.length,
         "The data source returns unexpected number of columns")
       val wrappedScan = getWrappedScan(scan, holder)

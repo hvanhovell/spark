@@ -43,6 +43,8 @@ trait ConfigRegistry {
    */
   def allRegisteredEntries: Seq[ConfigEntry[_]]
 
+  def containsConfigKey(key: String): Boolean
+
   def getDeprecatedConfig(key: String): Option[DeprecatedConfig]
 
   def getRemovedConfig(key: String): Option[RemovedConfig]
@@ -72,6 +74,7 @@ case class RemovedConfig(key: String, version: String, defaultValue: String, com
 class NoopConfigRegistry extends ConfigRegistry {
   override def checkEntryExists(key: String): Unit = ()
   override def getConfigEntry(key: String): ConfigEntry[_] = null
+  override def containsConfigKey(key: String): Boolean = false
   override def allRegisteredEntries: Seq[ConfigEntry[_]] = Nil
   override def getDeprecatedConfig(key: String): Option[DeprecatedConfig] = None
   override def getRemovedConfig(key: String): Option[RemovedConfig] = None
@@ -97,6 +100,10 @@ class SimpleConfigRegistry extends ConfigRegistry {
     entries = updatedMap
   }
 
+  protected def registerAll(registry: ConfigRegistry): Unit = {
+    registry.allRegisteredEntries.foreach(register)
+  }
+
   protected def buildConf(key: String): ConfigBuilder = ConfigBuilder(key).onCreate(register)
 
   protected def getConf[E](entry: ConfigEntry[E]): E = Config.get.getConf(entry)
@@ -110,4 +117,6 @@ class SimpleConfigRegistry extends ConfigRegistry {
   override def getDeprecatedConfig(key: String): Option[DeprecatedConfig] = None
 
   override def getRemovedConfig(key: String): Option[RemovedConfig] = None
+
+  override def containsConfigKey(key: String): Boolean = entries.containsKey(key)
 }

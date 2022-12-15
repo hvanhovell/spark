@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.streaming.state
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeProjection, GenerateUnsafeRowJoiner}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 
 /**
  * Base trait for state manager purposed to be used from streaming aggregations.
@@ -160,8 +160,8 @@ class StreamingAggregationStateManagerImplV2(
     GenerateUnsafeProjection.generate(valueExpressions, inputRowAttributes)
 
   @transient private lazy val joiner =
-    GenerateUnsafeRowJoiner.create(StructType.fromAttributes(keyExpressions),
-      StructType.fromAttributes(valueExpressions))
+    GenerateUnsafeRowJoiner.create(DataTypeUtils.fromAttributes(keyExpressions),
+      DataTypeUtils.fromAttributes(valueExpressions))
   @transient private lazy val restoreValueProjector = GenerateUnsafeProjection.generate(
     inputRowAttributes, keyValueJoinedExpressions)
 

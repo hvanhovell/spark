@@ -364,7 +364,7 @@ object PartitioningUtils extends SQLConfHelper {
     }
 
   def getPathFragment(spec: TablePartitionSpec, partitionColumns: Seq[Attribute]): String = {
-    getPathFragment(spec, StructType.fromAttributes(partitionColumns))
+    getPathFragment(spec, DataTypeUtils.fromAttributes(partitionColumns))
   }
 
   /**
@@ -467,7 +467,7 @@ object PartitioningUtils extends SQLConfHelper {
       // `DecimalType` conversion can fail when
       //   1. The precision is bigger than 38.
       //   2. scale is bigger than precision.
-      DecimalType.fromDecimal(Decimal(bigDecimal))
+      DecimalTypeUtils.fromDecimal(Decimal(bigDecimal))
     }
 
     val dateTry = Try {

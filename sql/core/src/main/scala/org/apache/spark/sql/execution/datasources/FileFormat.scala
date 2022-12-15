@@ -30,7 +30,7 @@ import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.{DataType, LongType, StringType, StructField, StructType, TimestampType}
+import org.apache.spark.sql.types.{DataType, DataTypeUtils, LongType, StringType, StructField, StructType, TimestampType}
 import org.apache.spark.unsafe.types.UTF8String
 
 
@@ -138,7 +138,8 @@ trait FileFormat {
       sparkSession, dataSchema, partitionSchema, requiredSchema, filters, options, hadoopConf)
 
     new (PartitionedFile => Iterator[InternalRow]) with Serializable {
-      private val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
+      private val fullSchema = DataTypeUtils.toAttributes(requiredSchema) ++
+        DataTypeUtils.toAttributes(partitionSchema)
 
       // Using lazy val to avoid serialization
       private lazy val appendPartitionColumns =

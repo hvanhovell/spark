@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.command.ShowTablesCommand
 import org.apache.spark.sql.execution.datasources.{DataSource, LogicalRelation}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.internal.connector.V1Function
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.storage.StorageLevel
 
 
@@ -748,7 +748,7 @@ class CatalogImpl(sparkSession: SparkSession) extends Catalog {
           cascade = true)
       }
     } catch {
-      case e: org.apache.spark.sql.catalyst.parser.ParseException =>
+      case _: org.apache.spark.sql.parser.ParseException =>
         sparkSession.sharedState.cacheManager.uncacheQuery(sparkSession.table(tableName),
           cascade = true)
     }
@@ -877,7 +877,7 @@ private[sql] object CatalogImpl {
     val enc = ExpressionEncoder[T]()
     val toRow = enc.createSerializer()
     val encoded = data.map(d => toRow(d).copy())
-    val plan = new LocalRelation(enc.schema.toAttributes, encoded)
+    val plan = new LocalRelation(DataTypeUtils.toAttributes(enc.schema), encoded)
     val queryExecution = sparkSession.sessionState.executePlan(plan)
     new Dataset[T](queryExecution, enc)
   }

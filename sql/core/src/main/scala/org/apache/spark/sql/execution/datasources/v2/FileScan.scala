@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.PartitionedFileUtil
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.internal.connector.SupportsMetadata
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypeUtils, StructType}
 import org.apache.spark.util.Utils
 
 trait FileScan extends Scan
@@ -85,11 +85,11 @@ trait FileScan extends Scan
   private lazy val (normalizedPartitionFilters, normalizedDataFilters) = {
     val partitionFilterAttributes = AttributeSet(partitionFilters).map(a => a.name -> a).toMap
     val normalizedPartitionFilters = ExpressionSet(partitionFilters.map(
-      QueryPlan.normalizeExpressions(_, fileIndex.partitionSchema.toAttributes
+      QueryPlan.normalizeExpressions(_, DataTypeUtils.toAttributes(fileIndex.partitionSchema)
         .map(a => partitionFilterAttributes.getOrElse(a.name, a)))))
     val dataFiltersAttributes = AttributeSet(dataFilters).map(a => a.name -> a).toMap
     val normalizedDataFilters = ExpressionSet(dataFilters.map(
-      QueryPlan.normalizeExpressions(_, dataSchema.toAttributes
+      QueryPlan.normalizeExpressions(_, DataTypeUtils.toAttributes(dataSchema)
         .map(a => dataFiltersAttributes.getOrElse(a.name, a)))))
     (normalizedPartitionFilters, normalizedDataFilters)
   }
@@ -132,7 +132,7 @@ trait FileScan extends Scan
   protected def partitions: Seq[FilePartition] = {
     val selectedPartitions = fileIndex.listFiles(partitionFilters, dataFilters)
     val maxSplitBytes = FilePartition.maxSplitBytes(sparkSession, selectedPartitions)
-    val partitionAttributes = fileIndex.partitionSchema.toAttributes
+    val partitionAttributes = DataTypeUtils.toAttributes(fileIndex.partitionSchema)
     val attributeMap = partitionAttributes.map(a => normalizeName(a.name) -> a).toMap
     val readPartitionAttributes = readPartitionSchema.map { readField =>
       attributeMap.getOrElse(normalizeName(readField.name),

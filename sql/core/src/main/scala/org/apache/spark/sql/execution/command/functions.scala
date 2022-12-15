@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.catalog.{CatalogFunction, FunctionResource}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, ExpressionInfo}
 import org.apache.spark.sql.catalyst.util.StringUtils
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DataTypeUtils, StringType, StructField, StructType}
 
 
 /**
@@ -96,7 +96,7 @@ case class DescribeFunctionCommand(
 
   override val output: Seq[Attribute] = {
     val schema = StructType(Array(StructField("function_desc", StringType, nullable = false)))
-    schema.toAttributes
+    DataTypeUtils.toAttributes(schema)
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
