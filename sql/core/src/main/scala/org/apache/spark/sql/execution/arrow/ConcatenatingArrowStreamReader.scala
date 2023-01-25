@@ -62,6 +62,7 @@ class ConcatenatingArrowStreamReader(
   }
 
   override def loadNextBatch(): Boolean = {
+    prepareLoadNextBatch()
     // Keep looping until we load a non-empty batch or until we exhaust the input.
     while (true) {
       val result = nextMessageResult()

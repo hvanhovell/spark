@@ -66,6 +66,7 @@ object ArrowSerializers {
       private val unloader = new VectorUnloader(root)
       private val bytes = new ByteArrayOutputStream
       private val channel = new WriteChannel(Channels.newChannel(bytes))
+      private var hasWrittenFirstBatch = false
 
       private def resetVectorRoot(): Unit = vectors.foreach(_.reset())
 
@@ -74,13 +75,14 @@ object ArrowSerializers {
        */
       private def sizeOk(i: Int): Boolean = {
         if (i > 0 && i % batchSizeCheckInterval == 0) {
+          root.setRowCount(i)
           val sizeInBytes = vectors.map(_.getBufferSize).sum
           return sizeInBytes < maxBatchSize
         }
         true
       }
 
-      override def hasNext: Boolean = input.hasNext
+      override def hasNext: Boolean = input.hasNext || !hasWrittenFirstBatch
 
       override def next(): Array[Byte] = {
         if (!hasNext) {
@@ -95,8 +97,12 @@ object ArrowSerializers {
           i += 1
         }
         root.setRowCount(i)
-        MessageSerializer.serialize(channel, unloader.getRecordBatch)
+        val batch = unloader.getRecordBatch
+        try MessageSerializer.serialize(channel, batch) finally {
+          batch.close()
+        }
         ArrowStreamWriter.writeEndOfStream(channel, IpcOption.DEFAULT)
+        hasWrittenFirstBatch = true
         bytes.toByteArray
       }
 

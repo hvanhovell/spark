@@ -53,14 +53,15 @@ object ArrowDeserializers {
     new CloseableIterator[T] {
       private[this] var index = 0
       private[this] val reader = new ConcatenatingArrowStreamReader(allocator, input)
+      private[this] val root = reader.getVectorSchemaRoot
       private[this] val deserializer = deserializerFor(encoder, reader.getVectorSchemaRoot)
 
       override def hasNext: Boolean = {
-        if (index >= deserializer.numValues) {
+        if (index >= root.getRowCount) {
           reader.loadNextBatch()
           index = 0
         }
-        index >= deserializer.numValues
+        index < root.getRowCount
       }
 
       override def next(): T = {
@@ -195,7 +196,6 @@ object ArrowDeserializers {
       case (OptionEncoder(value), v) =>
         val deserializer = deserializerFor(value, v)
         new Deserializer[Any] {
-          override def numValues: Int = deserializer.numValues
           override def get(i: Int): Any = Option(deserializer.get(i))
         }
 
@@ -293,7 +293,7 @@ object ArrowDeserializers {
         new StructFieldSerializer[Any](struct) {
           def value(i: Int): Any = {
             val parameters = deserializers.map(_.get(i))
-            constructor.invokeExact(parameters)
+            constructor.invoke(parameters) // See if we can get invokeExact to work here.
           }
         }
 
@@ -473,14 +473,12 @@ object ArrowDeserializers {
   }
 
   abstract class Deserializer[+E] {
-    def numValues: Int
     def get(i: Int): E
   }
 
   abstract class FieldDeserializer[E, V <: FieldVector](val vector: V) extends Deserializer[E] {
     def value(i: Int): E
     def isNull(i: Int): Boolean = vector.isNull(i)
-    override def numValues: Int = vector.getValueCount
     override def get(i: Int): E = {
       if (!isNull(i)) {
         value(i)
