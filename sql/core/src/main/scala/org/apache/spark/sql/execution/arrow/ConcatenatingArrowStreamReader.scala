@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.execution.arrow
 
-import java.io.ByteArrayInputStream
+import java.io.{ByteArrayInputStream, IOException}
 import java.nio.channels.Channels
 
 import org.apache.arrow.flatbuf.MessageHeader
@@ -55,9 +55,11 @@ class ConcatenatingArrowStreamReader(
     message
   }
 
-  override def readSchema(): Schema = {
+  override protected def readSchema(): Schema = {
     val result = nextMessageResult()
-    require(result != null, "Unexpected end of input. Missing schema.")
+    if (result == null) {
+      throw new IOException("Unexpected end of input. Missing schema.")
+    }
     MessageSerializer.deserializeSchema(result.getMessage)
   }
 

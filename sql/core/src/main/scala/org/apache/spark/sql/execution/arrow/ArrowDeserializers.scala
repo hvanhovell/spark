@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution.arrow
 
+import java.io.IOException
 import java.lang.invoke.{MethodHandles, MethodType}
 import java.lang.reflect.Modifier
 import java.math.{BigDecimal => JBigDecimal, BigInteger => JBigInteger}
@@ -33,12 +34,14 @@ import org.apache.arrow.vector.{BigIntVector, BitVector, DateDayVector, DecimalV
 import org.apache.arrow.vector.complex.{ListVector, MapVector, StructVector}
 import org.apache.arrow.vector.util.Text
 
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders._
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
-import org.apache.spark.sql.types.Decimal
+import org.apache.spark.sql.types.{Decimal, StructType}
+import org.apache.spark.sql.util.ArrowUtils
 
 /**
  * M
@@ -49,39 +52,48 @@ object ArrowDeserializers {
   def deserializeFromArrow[T](
       input: Iterator[Array[Byte]],
       encoder: AgnosticEncoder[T],
-      allocator: BufferAllocator): CloseableIterator[T] = {
-    new CloseableIterator[T] {
-      private[this] var index = 0
-      private[this] val reader = new ConcatenatingArrowStreamReader(allocator, input)
-      private[this] val root = reader.getVectorSchemaRoot
-      private[this] val deserializer = deserializerFor(encoder, reader.getVectorSchemaRoot)
-
-      override def hasNext: Boolean = {
-        if (index >= root.getRowCount) {
-          reader.loadNextBatch()
-          index = 0
-        }
-        index < root.getRowCount
-      }
-
-      override def next(): T = {
-        if (!hasNext) {
-          throw new NoSuchElementException()
-        }
-        val result = deserializer.get(index)
-        index += 1
-        result
-      }
-
-      override def close(): Unit = reader.close()
+      allocator: BufferAllocator): TypedDeserializingIterator[T] = {
+    try {
+      val reader = new ConcatenatingArrowStreamReader(allocator, input)
+      new ArrowDeserializingIterator(encoder, reader)
+    } catch {
+      case _: IOException =>
+        new EmptyDeserializingIterator(encoder)
     }
   }
 
-  def deserializerFor[T](encoder: AgnosticEncoder[T], root: VectorSchemaRoot): Deserializer[T] = {
-    deserializerFor(encoder, root.asInstanceOf[AnyRef]).asInstanceOf[Deserializer[T]]
+  /**
+   * Deserialize an Iterator of Arrow IPC streams into an Iterator of Rows.
+   */
+  def deserializeFromArrow(
+      input: Iterator[Array[Byte]],
+      allocator: BufferAllocator): TypedDeserializingIterator[Row] = {
+    try {
+      val reader = new ConcatenatingArrowStreamReader(allocator, input)
+      val schema = ArrowUtils.fromArrowSchema(reader.getVectorSchemaRoot.getSchema)
+      val encoder = org.apache.spark.sql.catalyst.encoders.RowEncoder.encoderFor(schema)
+      new ArrowDeserializingIterator(encoder, reader)
+    } catch {
+      case e: IOException =>
+        new EmptyDeserializingIterator(RowEncoder(Nil))
+    }
   }
 
-  private def deserializerFor(encoder: AgnosticEncoder[_], data: AnyRef): Deserializer[Any] = {
+  private[arrow] def deserializerFor[T](
+      encoder: AgnosticEncoder[T],
+      root: VectorSchemaRoot): Deserializer[T] = {
+    val data: AnyRef = if (encoder.schema == encoder.dataType) {
+      root
+    } else {
+      assert(root.getSchema.getFields.size() == 1)
+      root.getVector(0)
+    }
+    deserializerFor(encoder, data).asInstanceOf[Deserializer[T]]
+  }
+
+  private[arrow] def deserializerFor(
+      encoder: AgnosticEncoder[_],
+      data: AnyRef): Deserializer[Any] = {
     (encoder, data) match {
       case (PrimitiveBooleanEncoder | BoxedBooleanEncoder, v: BitVector) =>
         new FieldDeserializer[Boolean, BitVector](v) {
@@ -112,8 +124,8 @@ object ArrowDeserializers {
           def value(i: Int): Double = vector.get(i)
         }
       case (NullEncoder, v: NullVector) =>
-        new FieldDeserializer[Unit, NullVector](v) {
-          def value(i: Int): Unit = ()
+        new FieldDeserializer[Any, NullVector](v) {
+          def value(i: Int): Any = null
         }
       case (StringEncoder, v: VarCharVector) =>
         new FieldDeserializer[String, VarCharVector](v) {
@@ -127,18 +139,15 @@ object ArrowDeserializers {
           MethodType.methodType(tag.runtimeClass, classOf[String]))
         new FieldDeserializer[Enum[_], VarCharVector](v) {
           def value(i: Int): Enum[_] = {
-            valueOf.invokeExact(getString(vector, i)).asInstanceOf[Enum[_]]
+            valueOf.invoke(getString(vector, i)).asInstanceOf[Enum[_]]
           }
         }
-      case (ScalaEnumEncoder(parent, clsTag), v: VarCharVector) =>
-        val withName = methodLookup.findStatic(
-          parent,
-          "withName",
-          MethodType.methodType(clsTag.runtimeClass, classOf[String]))
+      case (ScalaEnumEncoder(parent, _), v: VarCharVector) =>
+        val mirror = scala.reflect.runtime.currentMirror
+        val module = mirror.classSymbol(parent).module.asModule
+        val enumeration = mirror.reflectModule(module).instance.asInstanceOf[Enumeration]
         new FieldDeserializer[Enumeration#Value, VarCharVector](v) {
-          def value(i: Int): Enumeration#Value = {
-            withName.invokeExact(getString(vector, i)).asInstanceOf[Enumeration#Value]
-          }
+          def value(i: Int): Enumeration#Value = enumeration.withName(getString(vector, i))
         }
       case (BinaryEncoder, v: VarBinaryVector) =>
         new FieldDeserializer[Array[Byte], VarBinaryVector](v) {
@@ -200,13 +209,13 @@ object ArrowDeserializers {
         }
 
       case (ArrayEncoder(element, _), v: ListVector) =>
-        val deserializer = deserializerFor(encoder, v.getDataVector)
-        new FieldDeserializer[Array[Any], ListVector](v) {
-          def value(i: Int): Array[Any] = getArray(vector, i, deserializer)(element.clsTag)
+        val deserializer = deserializerFor(element, v.getDataVector)
+        new FieldDeserializer[AnyRef, ListVector](v) {
+          def value(i: Int): AnyRef = getArray(vector, i, deserializer)(element.clsTag)
         }
 
       case (IterableEncoder(tag, element, _, _), v: ListVector) =>
-        val deserializer = deserializerFor(encoder, v.getDataVector)
+        val deserializer = deserializerFor(element, v.getDataVector)
         if (isSubClass(Classes.WRAPPED_ARRAY, tag)) {
           // Wrapped array is a bit special because we need to use an array of the element type.
           // Some parts of our codebase (unfortunately) rely on this for type inference on results.
@@ -317,15 +326,15 @@ object ArrowDeserializers {
         val setters = fields.map { field =>
           val vector = lookup(field.name)
           val deserializer = deserializerFor(field.enc, vector)
-          val setter = methodLookup.findSetter(
+          val setter = methodLookup.findVirtual(
             tag.runtimeClass,
-            field.name,
-            field.enc.clsTag.runtimeClass)
-          (bean: Any, i: Int) => setter.invokeExact(bean, deserializer.get(i))
+            field.writeMethod.get,
+            MethodType.methodType(classOf[Unit], field.enc.clsTag.runtimeClass))
+          (bean: Any, i: Int) => setter.invoke(bean, deserializer.get(i))
         }
         new StructFieldSerializer[Any](struct) {
           def value(i: Int): Any = {
-            val instance = constructor.invokeExact()
+            val instance = constructor.invoke()
             setters.foreach(_(instance, i))
             instance
           }
@@ -466,7 +475,7 @@ object ArrowDeserializers {
       v: ListVector,
       i: Int,
       deserializer: Deserializer[Any])(
-      implicit tag: ClassTag[Any]): Array[Any] = {
+      implicit tag: ClassTag[Any]): AnyRef = {
     val builder = mutable.ArrayBuilder.make[Any]
     loadListIntoBuilder(v, i, deserializer, builder)
     builder.result()
@@ -492,4 +501,44 @@ object ArrowDeserializers {
     extends FieldDeserializer[E, StructVector](v) {
     override def isNull(i: Int): Boolean = vector != null && vector.isNull(i)
   }
+}
+
+trait TypedDeserializingIterator[E] extends CloseableIterator[E] {
+  def encoder: AgnosticEncoder[E]
+  def schema: StructType = encoder.schema
+}
+
+class EmptyDeserializingIterator[E](override val encoder: AgnosticEncoder[E])
+  extends TypedDeserializingIterator[E] {
+  override def close(): Unit = ()
+  override def hasNext: Boolean = false
+  override def next(): E = throw new NoSuchElementException()
+}
+
+class ArrowDeserializingIterator[E](
+    override val encoder: AgnosticEncoder[E],
+    private[this] val reader: ConcatenatingArrowStreamReader)
+  extends TypedDeserializingIterator[E] {
+  private[this] var index = 0
+  private[this] val root = reader.getVectorSchemaRoot
+  private[this] val deserializer = ArrowDeserializers.deserializerFor(encoder, root)
+
+  override def hasNext: Boolean = {
+    if (index >= root.getRowCount) {
+      reader.loadNextBatch()
+      index = 0
+    }
+    index < root.getRowCount
+  }
+
+  override def next(): E = {
+    if (!hasNext) {
+      throw new NoSuchElementException()
+    }
+    val result = deserializer.get(index)
+    index += 1
+    result
+  }
+
+  override def close(): Unit = reader.close()
 }

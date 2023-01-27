@@ -183,7 +183,7 @@ object AgnosticEncoders {
     extends BoxedLeafEncoder[java.lang.Double, Double](DoubleType, PrimitiveDoubleEncoder)
 
   // Nullable leaf encoders
-  case object NullEncoder extends LeafEncoder[java.lang.Void](NullType)
+  case object NullEncoder extends LeafEncoder[Null](NullType)
   case object StringEncoder extends LeafEncoder[String](StringType)
   case object BinaryEncoder extends LeafEncoder[Array[Byte]](BinaryType)
   case object ScalaBigIntEncoder extends LeafEncoder[BigInt](DecimalType.BigIntDecimal)

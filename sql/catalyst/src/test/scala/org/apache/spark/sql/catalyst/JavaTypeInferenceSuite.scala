@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst
 
 import java.math.BigInteger
-import java.util.{List => JList, Map => JMap}
+import java.util.{List => JList, Map => JMap, Objects}
 
 import scala.beans.{BeanProperty, BooleanBeanProperty}
 import scala.reflect.{classTag, ClassTag}
@@ -30,6 +30,13 @@ import org.apache.spark.sql.types.{DecimalType, MapType, Metadata, StringType, S
 
 class DummyBean {
   @BeanProperty var bigInteger: BigInteger = _
+
+  override def hashCode(): Int = Objects.hashCode(bigInteger)
+
+  override def equals(obj: Any): Boolean = obj match {
+    case other: DummyBean => Objects.deepEquals(bigInteger, other.bigInteger)
+    case _ => false
+  }
 }
 
 class GenericCollectionBean {
@@ -64,7 +71,6 @@ class LeafBean {
   @BeanProperty var duration: java.time.Duration = _
   @BeanProperty var period: java.time.Period = _
   @BeanProperty var enum: java.time.Month = _
-  @BeanProperty val readOnlyString = "read-only"
 
   var nonNullString: String = "value"
   @javax.annotation.Nonnull
@@ -73,6 +79,10 @@ class LeafBean {
     java.util.Objects.nonNull(v)
     v
   }
+}
+
+class ReadOnlyBean {
+  @BeanProperty val readOnlyString = "read-only"
 }
 
 class ArrayBean {
@@ -188,9 +198,16 @@ class JavaTypeInferenceSuite extends SparkFunSuite {
       encoderField("primitiveInt", PrimitiveIntEncoder),
       encoderField("primitiveLong", PrimitiveLongEncoder),
       encoderField("primitiveShort", PrimitiveShortEncoder),
-      encoderField("readOnlyString", StringEncoder, readOnly = true),
       encoderField("string", StringEncoder),
       encoderField("timestamp", STRICT_TIMESTAMP_ENCODER)
+    ))
+    assert(encoder === expected)
+  }
+
+  test("resolve read only leaf") {
+    val encoder = JavaTypeInference.encoderFor(classOf[ReadOnlyBean])
+    val expected = JavaBeanEncoder(ClassTag(classOf[ReadOnlyBean]), Seq(
+      encoderField("readOnlyString", StringEncoder, readOnly = true)
     ))
     assert(encoder === expected)
   }

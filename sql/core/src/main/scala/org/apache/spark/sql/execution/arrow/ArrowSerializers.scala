@@ -24,6 +24,7 @@ import java.time.{Duration, Instant, LocalDate, LocalDateTime, Period}
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.{BigIntVector, BitVector, DateDayVector, DecimalVector, DurationVector, FieldVector, Float4Vector, Float8Vector, IntervalYearVector, IntVector, NullVector, SmallIntVector, TimeStampMicroTZVector, TimeStampMicroVector, TinyIntVector, VarBinaryVector, VarCharVector, VectorSchemaRoot, VectorUnloader}
@@ -40,8 +41,6 @@ import org.apache.spark.sql.catalyst.util.{DateTimeUtils, IntervalUtils}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types.Decimal
 import org.apache.spark.sql.util.ArrowUtils
-
-
 
 // TODO improve null checking
 // TODO improve type validation
@@ -60,6 +59,9 @@ object ArrowSerializers {
       maxBatchSize: Long,
       timeZoneId: String,
       batchSizeCheckInterval: Int = 128): CloseableIterator[Array[Byte]] = {
+    assert(maxRecordsPerBatch > 0)
+    assert(maxBatchSize > 0)
+    assert(batchSizeCheckInterval > 0)
     new CloseableIterator[Array[Byte]] {
       private val (root, serializer) = ArrowSerializers.serializerFor(enc, allocator, timeZoneId)
       private val vectors = root.getFieldVectors.asScala
@@ -72,11 +74,19 @@ object ArrowSerializers {
 
       /**
        * Periodical check to make sure we don't go over the size threshold by too much.
+       *
+       * The size computed consist of the size of the schema and the size of the arrow buffers. The
+       * actual batch will be larger than that because of alignment, written IPC tokens, and the
+       * written record batch metadata. The size of the record batch meta data is proportional to
+       * the complexity of the schema.
        */
       private def sizeOk(i: Int): Boolean = {
         if (i > 0 && i % batchSizeCheckInterval == 0) {
+          // We need to set the row count for getBufferSize to return the actual value.
           root.setRowCount(i)
-          val sizeInBytes = vectors.map(_.getBufferSize).sum
+          // At this point the bytes output stream only contains the schema.
+          val schemaSize = bytes.size()
+          val sizeInBytes = schemaSize + vectors.map(_.getBufferSize).sum
           return sizeInBytes < maxBatchSize
         }
         true
@@ -130,7 +140,7 @@ object ArrowSerializers {
     root -> serializer
   }
 
-  private def serializerFor[E](encoder: AgnosticEncoder[E], v: AnyRef): Serializer = {
+  private[arrow] def serializerFor[E](encoder: AgnosticEncoder[E], v: AnyRef): Serializer = {
     (encoder, v) match {
       case (PrimitiveBooleanEncoder | BoxedBooleanEncoder, v: BitVector) =>
         new FieldSerializer[Boolean, BitVector](v) {
@@ -163,7 +173,7 @@ object ArrowSerializers {
         }
       case (NullEncoder, v: NullVector) =>
         new FieldSerializer[Unit, NullVector](v) {
-          override def set(index: Int, value: Unit): Unit = ()
+          override def set(index: Int, value: Unit): Unit = vector.setNull(index)
         }
       case (StringEncoder, v: VarCharVector) =>
         new FieldSerializer[String, VarCharVector](v) {
@@ -269,13 +279,15 @@ object ArrowSerializers {
       case (OptionEncoder(value), v) =>
         new Serializer {
           private[this] val delegate: Serializer = serializerFor(value, v)
-          override def write(index: Int, value: Any): Unit =
-            delegate.write(index, value.asInstanceOf[Option[Any]].orNull)
+          override def write(index: Int, value: Any): Unit = value match {
+            case Some(value) => delegate.write(index, value)
+            case _ => delegate.write(index, null)
+          }
         }
 
       case (ArrayEncoder(element, _), v: ListVector) =>
         val elementSerializer = serializerFor(element, v.getDataVector)
-        val toIterator = (v: Array[Any]) => v.toIterator
+        val toIterator = (array: AnyRef) => mutable.WrappedArray.make(array).iterator
         new ArraySerializer(v, toIterator, elementSerializer)
 
       case (IterableEncoder(tag, element, _, lenient), v: ListVector) =>
@@ -323,7 +335,7 @@ object ArrowSerializers {
               tag.runtimeClass,
               field.name,
               MethodType.methodType(field.enc.clsTag.runtimeClass))
-            o => getter.invokeExact(o)
+            o => getter.invoke(o)
           }
         } else {
           unsupportedCollectionType(tag.runtimeClass)
@@ -336,11 +348,11 @@ object ArrowSerializers {
 
       case (JavaBeanEncoder(tag, fields), StructVectors(struct, vectors)) =>
         structSerializerFor(fields, struct, vectors) { (field, _) =>
-          val getter = methodLookup.findGetter(
+          val getter = methodLookup.findVirtual(
             tag.runtimeClass,
-            field.name,
-            field.enc.clsTag.runtimeClass)
-          o => getter.invokeExact(o)
+            field.readMethod.get,
+            MethodType.methodType(field.enc.clsTag.runtimeClass))
+          o => getter.invoke(o)
         }
 
       case (CalendarIntervalEncoder | _: UDTEncoder[_], _) =>
